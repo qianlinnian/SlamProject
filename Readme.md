@@ -1,4 +1,4 @@
-## an flutter app and python server for 3DGS SLAM (IN PROGRESS)
+## a flutter app and python server for 3DGS SLAM (IN PROGRESS)
 
 ### project structure
 
