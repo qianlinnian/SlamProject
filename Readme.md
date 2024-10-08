@@ -1,10 +1,10 @@
-## an flutter app and python server for 3DGS SLAM
+## a flutter app and python server for 3DGS SLAM
 
 The edge side and the server communicate with a websocket(a duplex protocol). IMU, gesture and picture streams are transferred. The server train 3DGS and stream rendered pictures to the edge side.
 
 ### project structure
 
-```python
+```
 3DGS
 ├── Readme.md
 ├── app
