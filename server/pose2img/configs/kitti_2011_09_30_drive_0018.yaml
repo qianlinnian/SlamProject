@@ -1,0 +1,93 @@
+use_wandb: False
+use_sky: False
+use_dynamic: False
+debug_mode: False
+
+device:
+  dataset: "cpu"
+  tracker: "cuda:0"
+  mapper: "cuda:0"
+
+dataset:
+  folder: /data/wuke/DATA/2023/KITTI/KITTI_2011_09_30_drive_0018/
+  initial_k: 0
+  final_k: -1
+  img_stride: 1
+  buffer: 1000
+  module: datasets.kitti
+
+tracker:
+  ckpt_path: /data/wuke/workspace/DroidGS/ckpts/droid.pth
+  buffer: 1000 # 10
+
+looper:
+  lightglue_weight_dir: /data/wuke/workspace/LightGlue-ONNX/weights/
+  onnx_w: 512
+  H: 344
+  W: 616
+  # nearest_k_frame: 10
+  loop_radius: 5
+  is_loop_min_match_num: 50
+  search_num: 50
+  is_loop_mse_threshold: 0.2
+  is_loop_med_times: 1.5
+
+intrinsic: # H, W, intrinsic就用原始的哈
+  H: 370
+  W: 1226
+  fu: 725.0087
+  fv: 725.0087
+  cu: 187 # cy
+  cv: 620.5 # cx
+  resolution_scale: 1.0
+  bg: 0
+
+output:
+  save_dir: /data/wuke/workspace/Droid2DAcc/output/
+
+adc_args:
+  accum_thresh: 0.9
+
+training_args:
+  num_keyframe: 8
+  iters: 100
+  lr: # Copy form 2DGS.
+    _xyz_lr: 0.00016
+    _rgb_lr: 0.0025
+    _opacity_lr: 0.05
+    _scaling_lr: 0.005
+    _rotation_lr: 0.001
+  loss_weights:
+    rgb_loss: 1.0
+    depth_loss: 1.0
+    alpha_loss: 0.5 # 10.0
+    normal_loss: 0.05 # 0.05
+    dist_loss: 0.0
+
+frontend:
+  dsf: 8
+
+use_vis: False
+vis:
+  # Only Droid.
+  # bev_w2c: [[-0.15761017, -0.03654035, -0.98682513, -0.90463131197421376],
+  #      [ 0.93290297, -0.33319054, -0.13666058,  0.038802834731385072],
+  #      [-0.32380717, -0.94215119,  0.08660282, 14.628460554831824 ],
+  #      [ 0.        ,  0.        ,  0.        ,  1.        ]]
+  # ZoeDepth.
+  bev_w2c:
+    [
+      [6.04399530e-02, 2.62568812e-02, 9.97826432e-01, 2.33625029e+01],
+      [-9.89612960e-01, 1.32204577e-01, 5.64636084e-02, 1.43553741e+01],
+      [-1.30434663e-01, -9.90874627e-01, 3.39745884e-02, 4.37348074e+01],
+      [0.00000000e+00, 0.00000000e+00, 0.00000000e+00, 1.00000000e+00],
+    ]
+  bev_intrinsic_dict:
+    H: 1080
+    W: 1920
+    fu: 935
+    fv: 935
+    cu: 539.5 # cy
+    cv: 959.5 # cx
+
+use_metric: False

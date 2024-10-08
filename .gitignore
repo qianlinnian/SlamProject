@@ -19,4 +19,11 @@ doc/api/
 *.js_
 *.js.deps
 *.js.map
+/server/data/*
+/server/pose2img/submodules/*
+/server/pose2img/wandb/*
+/server/pose2img/ckpts/*
+/server/pose2img/lietorch/*
+/server/pose2img/pytorch3d
 
+**/__pycache__/*

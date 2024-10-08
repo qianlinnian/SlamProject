@@ -13,17 +13,9 @@ class Drag extends StatefulWidget {
 }
 
 class DragState extends State<Drag> with SingleTickerProviderStateMixin {
-  double _yaw = 0.0;
-  double _pitch = 0.0;
-  double _scale = 1.0;
-  Timer? viewTimer;
+  int cnt = 0;
   @override
   void initState() {
-    viewTimer ??= Timer.periodic(Duration(milliseconds: 100), (timer) {
-      widget.sendMessage(
-          jsonEncode({'yaw': _yaw, 'pitch': _pitch, 'scale': _scale}));
-      _scale = 1.0;
-    });
     super.initState();
   }
 
@@ -35,11 +27,28 @@ class DragState extends State<Drag> with SingleTickerProviderStateMixin {
           child: GestureDetector(
             child: widget.child,
             onScaleUpdate: (ScaleUpdateDetails details) {
-              setState(() {
-                _yaw += details.focalPointDelta.dx;
-                _pitch += details.focalPointDelta.dy;
-                _scale = details.scale;
-              });
+              if (details.pointerCount == 1) {
+                widget.sendMessage(jsonEncode({
+                  'yaw': details.focalPointDelta.dx,
+                  'pitch': details.focalPointDelta.dy,
+                  'code': "orientationUpdate"
+                }));
+              } else if (details.pointerCount == 2) {
+                if (cnt % 4 == 3) {
+                  widget.sendMessage(jsonEncode(
+                      {'scale': details.scale, 'code': "scaleUpdate"}));
+                  setState(() {
+                    cnt = 0;
+                  });
+                } else {
+                  setState(() {
+                    cnt++;
+                  });
+                }
+              }
+            },
+            onScaleEnd: (ScaleEndDetails details) {
+              widget.sendMessage(jsonEncode({"code": "scaleEnd"}));
             },
           ),
         )

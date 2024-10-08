@@ -37,10 +37,17 @@ class _VideoStreamState extends State<VideoStream> {
   @override
   void initState() {
     _loadCam();
-    accelerometerEventStream(samplingPeriod: SensorInterval.uiInterval).listen(
+    accelerometerEventStream(samplingPeriod: SensorInterval.gameInterval)
+        .listen(
       (AccelerometerEvent event) {
         if (_isConnected) {
-          _socket.sendMessage(event.toString());
+          _socket.sendMessage(jsonEncode({
+            'x': event.x,
+            'y': event.y,
+            'z': event.z,
+            'timestamp': event.timestamp.microsecondsSinceEpoch,
+            'code': "accelerometer"
+          }));
         }
       },
       onError: (error) {
@@ -49,22 +56,16 @@ class _VideoStreamState extends State<VideoStream> {
       },
       cancelOnError: true,
     );
-    gyroscopeEventStream(samplingPeriod: SensorInterval.uiInterval).listen(
+    gyroscopeEventStream(samplingPeriod: SensorInterval.gameInterval).listen(
       (GyroscopeEvent event) {
         if (_isConnected) {
-          _socket.sendMessage(event.toString());
-        }
-      },
-      onError: (error) {
-        // Logic to handle error
-        // Needed for Android in case sensor is not available
-      },
-      cancelOnError: true,
-    );
-    magnetometerEventStream(samplingPeriod: SensorInterval.uiInterval).listen(
-      (MagnetometerEvent event) {
-        if (_isConnected) {
-          _socket.sendMessage(event.toString());
+          _socket.sendMessage(jsonEncode({
+            'x': event.x,
+            'y': event.y,
+            'z': event.z,
+            'timestamp': event.timestamp.microsecondsSinceEpoch,
+            'code': "gyroscope"
+          }));
         }
       },
       onError: (error) {
@@ -79,7 +80,8 @@ class _VideoStreamState extends State<VideoStream> {
 
   Future<void> _loadCam() async {
     _cameras = await availableCameras();
-    controller = CameraController(_cameras[0], ResolutionPreset.medium);
+    controller = CameraController(_cameras[0], ResolutionPreset.high);
+
     controller.initialize().then((_) {
       if (!mounted) {
         return;
@@ -117,7 +119,8 @@ class _VideoStreamState extends State<VideoStream> {
     if (picTimer != null && picTimer!.isActive) {
       return;
     }
-    picTimer = Timer.periodic(const Duration(milliseconds: 500), (Timer timer) {
+    picTimer =
+        Timer.periodic(const Duration(milliseconds: 1000), (Timer timer) {
       if (_isConnected) {
         sendPicture();
       } else {
