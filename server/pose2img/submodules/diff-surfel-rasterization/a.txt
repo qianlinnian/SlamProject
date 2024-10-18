@@ -1,0 +1,9 @@
+Looking in indexes: https://mirrors.aliyun.com/pypi/simple/
+Processing d:\work\magiclab\gaussian_app\3dgs_slam_mobile_app\server\pose2img\submodules\diff-surfel-rasterization
+  Preparing metadata (setup.py): started
+  Preparing metadata (setup.py): finished with status 'done'
+Building wheels for collected packages: diff_surfel_rasterization
+  Building wheel for diff_surfel_rasterization (setup.py): started
+  Building wheel for diff_surfel_rasterization (setup.py): finished with status 'error'
+  Running setup.py clean for diff_surfel_rasterization
+Failed to build diff_surfel_rasterization
