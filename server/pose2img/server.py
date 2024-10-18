@@ -207,7 +207,7 @@ async def handle(websocket, path):
 
 
 async def main():
-    async with websockets.serve(handle, "0.0.0.0", 5000, max_size=2**30):
+    async with websockets.serve(handle, "localhost", 5000, max_size=2**30):
         print("WebSocket服务器已启动，监听端口 5000")
         await asyncio.Future()
 
