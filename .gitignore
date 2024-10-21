@@ -20,6 +20,7 @@ doc/api/
 *.js.deps
 *.js.map
 /server/data/*
+/server/pose2img/submodule/build/*
 /server/pose2img/wandb/*
 /server/pose2img/ckpts/*
 /server/pose2img/lietorch/*

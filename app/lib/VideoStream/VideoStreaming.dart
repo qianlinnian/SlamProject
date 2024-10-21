@@ -80,7 +80,7 @@ class _VideoStreamState extends State<VideoStream> {
 
   Future<void> _loadCam() async {
     _cameras = await availableCameras();
-    controller = CameraController(_cameras[0], ResolutionPreset.high);
+    controller = CameraController(_cameras[0], ResolutionPreset.medium);
 
     controller.initialize().then((_) {
       if (!mounted) {
