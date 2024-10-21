@@ -16,6 +16,7 @@ import cv2, base64
 import sys
 import base64
 import numpy as np
+import render as render
 import csv
 from PIL import Image
 from PIL.ExifTags import TAGS
@@ -26,32 +27,7 @@ from datetime import datetime
 port = 5000
 lock = asyncio.Lock()
 print("Started server on port:", port)
-
-
-def draw_corr():
-    canvas = np.zeros((480, 720, 3), dtype="uint8")
-
-    # 设置要显示的数字和其位置
-    numbers = [
-        "yaw" + str(yaw),
-        "pitch" + str(pitch),
-        "raw" + str(raw),
-        "x" + str(x + offsetx),
-        "y" + str(y + offsety),
-        "z" + str(z + offsetz),
-    ]
-    positions = [(50, 50), (50, 100), (50, 150), (50, 200), (50, 250), (50, 300)]
-
-    # 设置字体、颜色和大小
-    font = cv2.FONT_HERSHEY_SIMPLEX
-    font_scale = 1
-    color = (255, 255, 255)  # 白色
-    thickness = 2
-
-    # 将数字绘制到画面上
-    for number, position in zip(numbers, positions):
-        cv2.putText(canvas, number, position, font, font_scale, color, thickness)
-    return canvas
+evaluator = render.getEvaluator()
 
 
 async def send(websocket):
@@ -60,7 +36,15 @@ async def send(websocket):
     await websocket.send("Connection Established")
     try:
         while True:
-            frame = draw_corr()
+            async with lock:
+                C2W = render.Evaluator.RM_offset2C2W(
+                    render.Evaluator.YawPitchRaw2RotationMatrix(yaw, pitch, raw),
+                    [x + offsetx, y + offsety, z + offsetz],
+                )
+            frame = evaluator.run(C2W, "")
+            # cap = cv2.VideoCapture(0)
+            # while cap.isOpened():
+            #     _, frame = cap.read()
             encoded = cv2.imencode(".jpg", frame)[1]
             data = str(base64.b64encode(encoded))
             data = data[2 : len(data) - 1]
@@ -76,7 +60,7 @@ async def receive(websocket):
     cnt = 0
     gyroFlag = 0
     accFlag = 0
-    # file_handle = open("..\\data\\output.csv", mode="w", newline="")
+    file_handle = open("..\\data\\output.csv", mode="w", newline="")
     gyroAccDict = {
         "timestamp": 0,
         "omega_x": 0,
@@ -86,8 +70,8 @@ async def receive(websocket):
         "alpha_y": 0,
         "alpha_z": 0,
     }
-    # writer = csv.DictWriter(file_handle, fieldnames=gyroAccDict.keys())
-    # writer.writeheader()
+    writer = csv.DictWriter(file_handle, fieldnames=gyroAccDict.keys())
+    writer.writeheader()
     while True:
         message = await websocket.recv()  # Wait for a message from the client
         cnt += 1
@@ -128,7 +112,7 @@ async def receive(websocket):
             except:
                 pass
             if gyroFlag == 1 and accFlag == 1:
-                # writer.writerow(gyroAccDict)
+                writer.writerow(gyroAccDict)
                 gyroFlag = 0
                 accFlag = 0
         else:
@@ -160,11 +144,11 @@ async def receive(websocket):
                 if subsec_time_original:
                     subsec_seconds = str(subsec_time_original)
 
-            # with open(
-            #     "..\\data\\cam0\\" + str(timestamp) + subsec_seconds + "000" + ".png",
-            #     "wb",
-            # ) as f:
-            #     f.write(pic)
+            with open(
+                "..\\data\\cam0\\" + str(timestamp) + subsec_seconds + "000" + ".png",
+                "wb",
+            ) as f:
+                f.write(pic)
 
 
 def YawPitchRaw2RotationMatrix(yaw, pitch, raw):
@@ -223,7 +207,7 @@ async def handle(websocket, path):
 
 
 async def main():
-    async with websockets.serve(handle, "localhost", 5000, max_size=2**30):
+    async with websockets.serve(handle, "0.0.0.0", 5000, max_size=2**30):
         print("WebSocket服务器已启动，监听端口 5000")
         await asyncio.Future()
 
