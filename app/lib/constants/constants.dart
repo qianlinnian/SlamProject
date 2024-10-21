@@ -10,5 +10,5 @@
  */
 class Constants {
   static String videoWebsocketURL =
-      "ws://127.0.0.1:5000"; //"ws://192.168.2.38:5000";
+      "ws://10.192.40.33:5000"; //"ws://192.168.2.38:5000";
 }
