@@ -37,8 +37,7 @@ class _VideoStreamState extends State<VideoStream> {
   @override
   void initState() {
     _loadCam();
-    accelerometerEventStream(samplingPeriod: SensorInterval.gameInterval)
-        .listen(
+    accelerometerEventStream(samplingPeriod: SensorInterval.uiInterval).listen(
       (AccelerometerEvent event) {
         if (_isConnected) {
           _socket.sendMessage(jsonEncode({
@@ -56,7 +55,7 @@ class _VideoStreamState extends State<VideoStream> {
       },
       cancelOnError: true,
     );
-    gyroscopeEventStream(samplingPeriod: SensorInterval.gameInterval).listen(
+    gyroscopeEventStream(samplingPeriod: SensorInterval.uiInterval).listen(
       (GyroscopeEvent event) {
         if (_isConnected) {
           _socket.sendMessage(jsonEncode({
@@ -119,8 +118,7 @@ class _VideoStreamState extends State<VideoStream> {
     if (picTimer != null && picTimer!.isActive) {
       return;
     }
-    picTimer =
-        Timer.periodic(const Duration(milliseconds: 1000), (Timer timer) {
+    picTimer = Timer.periodic(const Duration(milliseconds: 500), (Timer timer) {
       if (_isConnected) {
         sendPicture();
       } else {

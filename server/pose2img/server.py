@@ -49,7 +49,7 @@ async def send(websocket):
             data = str(base64.b64encode(encoded))
             data = data[2 : len(data) - 1]
             await websocket.send(data)
-
+            await asyncio.sleep(1)
         # cap.release()
     except:
         print("Client Disconnected!")
@@ -61,6 +61,8 @@ async def receive(websocket):
     gyroFlag = 0
     accFlag = 0
     file_handle = open("..\\data\\output.csv", mode="w", newline="")
+    gyro_handle = open("..\\data\\gyro.csv", mode="w", newline="")
+    acc_handle = open("..\\data\\acc.csv", mode="w", newline="")
     gyroAccDict = {
         "timestamp": 0,
         "omega_x": 0,
@@ -70,8 +72,24 @@ async def receive(websocket):
         "alpha_y": 0,
         "alpha_z": 0,
     }
+    gyroDict = {
+        "timestamp": 0,
+        "omega_x": 0,
+        "omega_y": 0,
+        "omega_z": 0,
+    }
+    accDict = {
+        "timestamp": 0,
+        "alpha_x": 0,
+        "alpha_y": 0,
+        "alpha_z": 0,
+    }
     writer = csv.DictWriter(file_handle, fieldnames=gyroAccDict.keys())
     writer.writeheader()
+    gyro_writer = csv.DictWriter(gyro_handle, fieldnames=gyroDict.keys())
+    gyro_writer.writeheader()
+    acc_writer = csv.DictWriter(acc_handle, fieldnames=accDict.keys())
+    acc_writer.writeheader()
     while True:
         message = await websocket.recv()  # Wait for a message from the client
         cnt += 1
@@ -87,6 +105,11 @@ async def receive(websocket):
                 elif message["code"] == "scaleEnd":
                     await scaleEnd(message)
                 elif message["code"] == "accelerometer":
+                    accDict["alpha_x"] = message["x"]
+                    accDict["alpha_y"] = message["y"]
+                    accDict["alpha_z"] = message["z"]
+                    accDict["timestamp"] = message["timestamp"] * 1000
+                    acc_writer.writerow(accDict)
                     if gyroFlag == 1:
                         gyroAccDict["alpha_x"] = message["x"]
                         gyroAccDict["alpha_y"] = message["y"]
@@ -98,6 +121,11 @@ async def receive(websocket):
                         gyroAccDict["timestamp"] = message["timestamp"] * 1000
                     accFlag = 1
                 elif message["code"] == "gyroscope":
+                    gyroDict["omega_x"] = message["x"]
+                    gyroDict["omega_y"] = message["y"]
+                    gyroDict["omega_z"] = message["z"]
+                    gyroDict["timestamp"] = message["timestamp"] * 1000
+                    gyro_writer.writerow(gyroDict)
                     if accFlag == 1:
                         gyroAccDict["omega_x"] = message["x"]
                         gyroAccDict["omega_y"] = message["y"]
@@ -108,7 +136,6 @@ async def receive(websocket):
                         gyroAccDict["omega_z"] = message["z"]
                         gyroAccDict["timestamp"] = message["timestamp"] * 1000
                     gyroFlag = 1
-                # print("Received message from client:", message)
             except:
                 pass
             if gyroFlag == 1 and accFlag == 1:
