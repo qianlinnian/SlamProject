@@ -44,14 +44,13 @@ You only need flutter environment to source the app to your mobile phone for the
 follow through [set up flutter environment](https://book.flutterchina.club/chapter1/install_flutter.html#_1-3-1-%E5%AE%89%E8%A3%85flutter) from `1.3.1` to `1.3.3`. I personally used `vscode` as IDE.
 
 #### server
-
 Follow through `/server/docs_env/Readme.md`. It is recommended to use linux. Refer to `/server/docs_env/fix.md` when installing on windows.
 
 ### To Deploy
 
 1. make sure the mobile phone and the laptop are under the same network
 2. change the ip address in `app/lib/constants/constants.dart` to laptop's LAN ip
-3. start the python server at `server/pose2img/server.py`
+3. start the python server at `server/pose2img/server.py`(or the server in the main repository)
 4. run app/lib/main.dart on the mobile phone or download the apk(currently not an option)
 5. click the connect button on the mobile phone
-6. drag and scale the 3dgs rendering with your finger
+6. you are ready to go
