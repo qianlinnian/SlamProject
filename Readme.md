@@ -44,7 +44,7 @@ You only need flutter environment to source the app to your mobile phone for the
 follow through [set up flutter environment](https://book.flutterchina.club/chapter1/install_flutter.html#_1-3-1-%E5%AE%89%E8%A3%85flutter) from `1.3.1` to `1.3.3`. I personally used `vscode` as IDE.
 
 #### server
-Follow through `/server/docs_env/Readme.md`. It is recommended to use linux. Refer to `/server/docs_env/fix.md` when installing on windows.
+This is a simple network validation server. To do online 2dgs reconstruction, you have to run the server in the main repository. 
 
 ### To Deploy
 
