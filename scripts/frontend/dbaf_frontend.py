@@ -1,3 +1,4 @@
+# scripts/frontend/dbaf_frontend.py
 import torch
 import torchvision
 import numpy as np
@@ -472,6 +473,7 @@ class DBAFusionFrontend:
             var_g += np.linalg.norm(tmp_g - aver_g)**2
         var_g =math.sqrt(var_g/ccount)
         if var_g < 0.25:
+            print(f"[IMU] Excitation too low: var_g={var_g:.4f} < 0.25, falling back to visual-only")
             # Remember to Delete, 2024/11/03
             self.graph.update(None, None, use_inactive=True)
             self.graph.update(None, None, use_inactive=True)
@@ -481,6 +483,7 @@ class DBAFusionFrontend:
                 self.graph.update(None, None, use_inactive=True)
             # print("IMU excitation not enough!")
         else:
+            print(f"[IMU] Excitation sufficient: var_g={var_g:.4f}, enabling IMU")
             poses = SE3(self.video.poses)
             self.plt_pos = [[],[]]
             self.plt_pos_ref = [[],[]]

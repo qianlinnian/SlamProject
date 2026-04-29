@@ -1,3 +1,4 @@
+# hotel.yaml
 use_wandb: False
 use_sky: False
 use_dynamic: False

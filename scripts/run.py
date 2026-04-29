@@ -1,6 +1,8 @@
+# run.py
 import numpy as np
 import shutil
 import torch
+from frontend import gtsam_compat
 from lietorch import SE3
 import os
 from frontend.dbaf import DBAFusion

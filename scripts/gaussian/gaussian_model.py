@@ -1,3 +1,4 @@
+# scripts/gaussian/gaussian_model.py
 '''
 Customize ADC(Adaptive Densify Control) for Gaussian model.
 Version: 0.0
