@@ -1220,7 +1220,7 @@
             
 #             self.depths_cov[kx] = z_cov / self.disps[kx]**4
 #     # -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -import gtsam_compat
-import gtsam_compat
+# import gtsam_compat
 import numpy as np
 import torch
 import lietorch
@@ -2063,32 +2063,32 @@ class DepthVideo:
                                 
                             for i in range(6): H[i,i] += 0.00025  # for stability
 
-                                # Hg,vg = BA2GTSAM(H,v,self.Tbc)
-                                Hgg = gtsam_compat.BA2GTSAM(H, v, self.Tbc)
-                                Hg = Hgg[0:(t1-t0)*6, 0:(t1-t0)*6]
-                                vg = Hgg[0:(t1-t0)*6]
-                                vis_factor = CustomHessianFactor(marg_result, Hg, vg)
+                            # Hg,vg = BA2GTSAM(H,v,self.Tbc)
+                            Hgg = gtsam_compat.BA2GTSAM(H, v, self.Tbc)
+                            Hg = Hgg[0:(t1-t0)*6, 0:(t1-t0)*6]
+                            vg = Hgg[0:(t1-t0)*6]
+                            vis_factor = CustomHessianFactor(marg_result, Hg, vg)
                                         
-                                graph.push_back(vis_factor)
+                            graph.push_back(vis_factor)
 
-                                    for i in range(self.last_t0,marg_t1):
-                                        if i < t0:
-                                                if X(i) not in marg_paras:
-                                                    marg_paras.append(X(i))
+                        for i in range(self.last_t0,marg_t1):
+                            if i < t0:
+                                if X(i) not in marg_paras:
+                                    marg_paras.append(X(i))
                                 
-                                keys = self.prior_factor_map.keys()
-                                for i in sorted(keys):
-                                    if i < t0:
-                                            for iii in range(len(self.prior_factor_map[i])):
-                                                graph.push_back(self.prior_factor_map[i][iii])
-                                            del self.prior_factor_map[i]
-                                            if not self.marg_factor == None:
-                                                graph.push_back(self.marg_factor)
+                        keys = self.prior_factor_map.keys()
+                        for i in sorted(keys):
+                            if i < t0:
+                                for iii in range(len(self.prior_factor_map[i])):
+                                    graph.push_back(self.prior_factor_map[i][iii])
+                            del self.prior_factor_map[i]
+                        if not self.marg_factor == None:
+                            graph.push_back(self.marg_factor)
 
-                                self.marg_factor = gtsam.marginalizeOut(graph, self.cur_result, marg_paras)
+                        self.marg_factor = gtsam.marginalizeOut(graph, self.cur_result, marg_paras)
 
                         # covariance inflation of IMU biases
-                    if self.reinit == True:
+                        if self.reinit == True:
                             all_keys = self.marg_factor.keys()
                             for i in range(len(all_keys)):
                                 if all_keys[i] == B(t0):
@@ -2100,8 +2100,8 @@ class DepthVideo:
                             graph.push_back(b_l)
                             result_tmp = self.marg_factor.linearizationPoint()
                             result_tmp.insert(B(0),result_tmp.atConstantBias(B(t0)))
-                    self.marg_factor = gtsam.marginalizeOut(graph, self.cur_result, marg_paras)
-                    self.reinit = False
+                            self.marg_factor = gtsam.marginalizeOut(graph, self.cur_result, marg_paras)
+                            self.reinit = False
 
                     self.last_t0 = t0
                     self.last_t1 = t1
@@ -2130,8 +2130,8 @@ class DepthVideo:
                 params = gtsam.LevenbergMarquardtParams()#;params.setMaxIterations(1)
                 
                 # prior factor
-                    keys = self.prior_factor_map.keys()
-                    for i in sorted(keys):
+                keys = self.prior_factor_map.keys()
+                for i in sorted(keys):
                     if i >= t0 and i < t1:
                         for iii in range(len(self.prior_factor_map[i])):
                             self.cur_graph.push_back(self.prior_factor_map[i][iii])
@@ -2252,7 +2252,7 @@ class DepthVideo:
                 # =  =  =  =  =  =  =  =  =  =  =  =  =  =  =  =  =  =  =  =  =  =  =  =  =  =
                 
                 self.last_t0 = min(ii.min().item(), jj.min().item())
-                    self.last_t1 = t1
+                self.last_t1 = t1
                 
                 self.disps.clamp_(0.001)
             
@@ -2365,7 +2365,7 @@ class DepthVideo:
                 # =  =  =  =  =  =  =  =  =  =  =  =  =  =  =  =  =  =  =  =  =  =  =  =  =  =
                 
                 self.last_t0 = min(ii.min().item(), jj.min().item())
-                    self.last_t1 = t1
+                self.last_t1 = t1
                 
                 compute_covariances = True
                 if compute_covariances:
@@ -2443,5 +2443,4 @@ class DepthVideo:
             
             self.depths_cov[kx] = z_cov / self.disps[kx]**4
     # -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -
-gtsam_compat.BA2GTSAM = BA2GTSAM
-
+# gtsam_compat.BA2GTSAM = BA2GTSAM
