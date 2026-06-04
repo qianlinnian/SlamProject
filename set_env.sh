@@ -7,4 +7,4 @@ pip install -r requirements.txt
 cd submodules/dbaf
 sudo python setup.py install
 
-# export PYTHONPATH=$PWD/scripts:$PWD/submodules:$PWD/submodules/metric_modules/metric3d:$PWD:$PYTHONPATH
+export PYTHONPATH=$PWD/scripts:$PWD/submodules:$PWD/submodules/metric_modules/metric3d:$PWD:$PYTHONPATH

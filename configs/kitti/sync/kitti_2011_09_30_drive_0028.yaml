@@ -12,7 +12,7 @@ device:
   mapper: 'cuda:0'
 
 dataset:
-  root: /data/wuke/DATA/2024/RAW_KITTI/2011_09_30/2011_09_30_drive_0028_sync/
+  root: /root/autodl-tmp/VINGS-Mono/dataset/KITTI_Sync/2011_09_30/2011_09_30_drive_0028_sync/
   module: datasets.kitti_sync
   rgb_strip: 1
   imu_delay: 0.05006
@@ -23,7 +23,7 @@ middleware:
   max_depth: 25
 
 output:
-  save_dir: /data/wuke/workspace/VINGS-Mono/output/
+  save_dir: /root/autodl-tmp/VINGS-Mono/output/
 
 # 707.0912 707.0912 601.8873 183.1104
 intrinsic:
@@ -36,7 +36,7 @@ intrinsic:
   bg: 0
 
 frontend:
-  weight: /data/wuke/workspace/VINGS-Mono/ckpts/droid.pth
+  weight: /root/autodl-tmp/VINGS-Mono/ckpts/droid.pth
   image_size: [240, 800]
   buffer: 80
   filter_thresh: 2.4
@@ -83,7 +83,7 @@ training_args:
 #      [-1.79640269e-01,  2.90284064e-01, -9.39927942e-01, 4.87483489e+02],
 #      [ 0.00000000e+00,  0.00000000e+00,  0.00000000e+00, 1.00000000e+00]]
 
-use_vis: True
+use_vis: False
 vis:
   bev_w2c: [[ 7.79311585e-01,  6.25885075e-01,  3.06810371e-02, -2.06689827e+02],
        [ 3.61496698e-01, -4.09040286e-01, -8.37858092e-01, 9.32236153e+00],

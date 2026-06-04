@@ -73,9 +73,10 @@ def judge_and_package_v0_kitti360unsync(dba_fusion, intrinsics):
             pixel_mask = torch.ones_like(depths.squeeze(-1), dtype=torch.bool)
             
             
-            u_scale = dba_fusion.cfg['intrinsic']['new_H']/dba_fusion.cfg['intrinsic']['H']
-            
-            new_H = int(u_scale*dba_fusion.cfg['frontend']['image_size'][0])
+            target_H = dba_fusion.cfg['intrinsic'].get('new_H', dba_fusion.cfg['intrinsic']['H'])
+            u_scale = target_H / dba_fusion.cfg['intrinsic']['H']
+
+            new_H = int(u_scale * dba_fusion.cfg['frontend']['image_size'][0])
             new_cu = new_H / 2
             
             intrinsic  = {'fu': intrinsics[1].to(DEVICE), 'fv':intrinsics[0].to(DEVICE), 'cu':new_cu, 'cv':intrinsics[2].to(DEVICE), 'H':new_H, 'W':depths.shape[2]}

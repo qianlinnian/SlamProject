@@ -42,9 +42,10 @@ class Runner:
         if 'phone' not in cfg['dataset']['module']: self.tracker.dataset_length = len(self.dataset)
         
         self.mapper = GaussianModel(cfg)
-        
-        self.looper = LoopModel(cfg)
-        
+
+        self.use_loop = bool(cfg.get('use_loop', False)) and ('looper' in cfg)
+        self.looper = LoopModel(cfg) if self.use_loop else None
+
         if 'use_metric' in cfg.keys() and cfg['use_metric']:
             self.metric_predictor = Metric_Model(cfg) 
         
@@ -91,7 +92,7 @@ class Runner:
                 # Save and check.
                 new_viz_out = self.mapper.run(viz_out, True)
                 
-                if 'use_loop' in list(self.cfg.keys()) and self.cfg['use_loop']:
+                if self.use_loop:
                     if viz_out["global_kf_id"][-1] > 10 and viz_out["global_kf_id"][-1] % 3 == 0:
                         self.looper.run(self.mapper, self.tracker, viz_out, idx)
 

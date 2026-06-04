@@ -33,9 +33,12 @@ except ImportError:
 def _install_depth_video_functions():
     """Re-bind local BA2GTSAM and CustomHessianFactor onto the gtsam module."""
     # Import here to avoid circular dependency at module load time
-    from frontend.depth_video import BA2GTSAM, CustomHessianFactor
-    gtsam.BA2GTSAM = BA2GTSAM
-    gtsam.CustomHessianFactor = CustomHessianFactor
+    from frontend.depth_video import BA2GTSAM as _BA2GTSAM, CustomHessianFactor as _CustomHessianFactor
+    global BA2GTSAM, CustomHessianFactor
+    BA2GTSAM = _BA2GTSAM
+    CustomHessianFactor = _CustomHessianFactor
+    gtsam.BA2GTSAM = _BA2GTSAM
+    gtsam.CustomHessianFactor = _CustomHessianFactor
 
 
 def _evaluate_error_custom(self, pose_i, vel_i, pose_j, vel_j, bias_i, bias_j,
@@ -77,11 +80,22 @@ def _evaluate_error_custom(self, pose_i, vel_i, pose_j, vel_j, bias_i, bias_j,
     except (TypeError, ValueError):
         pass
     
-    raise RuntimeError(
-        "Could not invoke evaluateError with Jacobians. This GTSAM build may "
-        "not expose Jacobian computation via Python. Check version with "
-        "gtsam.__version__ and the output of help(gtsam.CombinedImuFactor.evaluateError)."
-    )
+    # Final fallback: some public builds expose only residuals. For the
+    # current VINGS-Mono use site we only need the gyro-bias block of H5
+    # during VisualIMUAlignment, so estimate that block numerically.
+    err = self.evaluateError(pose_i, vel_i, pose_j, vel_j, bias_i, bias_j)
+    H1.fill(0.0); H2.fill(0.0); H3.fill(0.0); H4.fill(0.0); H5.fill(0.0); H6.fill(0.0)
+
+    eps = 1e-6
+    accel = np.array(bias_i.accelerometer(), dtype=np.float64)
+    gyro = np.array(bias_i.gyroscope(), dtype=np.float64)
+    for col in range(3):
+        gyro_perturbed = gyro.copy()
+        gyro_perturbed[col] += eps
+        bias_i_perturbed = gtsam.imuBias.ConstantBias(accel, gyro_perturbed)
+        err_perturbed = self.evaluateError(pose_i, vel_i, pose_j, vel_j, bias_i_perturbed, bias_j)
+        H5[:, 3 + col] = (err_perturbed - err) / eps
+    return err
 
 
 def apply_patches():

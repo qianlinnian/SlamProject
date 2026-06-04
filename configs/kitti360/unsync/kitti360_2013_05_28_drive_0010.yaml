@@ -10,7 +10,7 @@ device:
   mapper: 'cuda:0'
 
 dataset:
-  root: /data/wuke/DATA/2024/KITTI360_UNSYNC/2013_05_28/2013_05_28_drive_0010_sync/
+  root: /root/autodl-tmp/VINGS-Mono/dataset/KITTI360_UNSYNC/2013_05_28/2013_05_28_drive_0010_sync/
   module: datasets.kitti360_unsync
   rgb_strip: 1
 
@@ -20,7 +20,7 @@ middleware:
   max_depth: 20
 
 output:
-  save_dir: /data/wuke/workspace/VINGS-Mono/output/
+  save_dir: /root/autodl-tmp/VINGS-Mono/output/
 
 # Unsync
 # [788.629315, 786.382230, 687.158398, 317.752196]
@@ -40,7 +40,7 @@ intrinsic:
 #      [0.00000000, 0.00000000, 0.00000000, 1.00000000]]
 
 frontend:
-  weight: /data/wuke/workspace/VINGS-Mono/ckpts/droid.pth
+  weight: /root/autodl-tmp/VINGS-Mono/ckpts/droid.pth
   image_size: [344, 616] # [264, 728]
   buffer: 80
   filter_thresh: 2.4
@@ -82,7 +82,7 @@ training_args:
     normal_loss: 0.01 # 0.05
     dist_loss: 0.0
 
-use_vis: True
+use_vis: False
 vis:
   bev_w2c: [[ 9.89419560e-01, -1.11309971e-01,  9.30538835e-02, 2.61090245e+02],
        [-1.10667475e-01, -9.93784405e-01, -1.20526806e-02, -2.05272773e+02],
