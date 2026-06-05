@@ -30,19 +30,60 @@ class StorageManager: # Works in the same thread as the mapper.
 
         # Color Poses.
         self.dataset_length = None
-        
+
+    def _extend_convey_kf_ids_for_gpu_cap(self, mapper, distance_to_cur_c2w, convey_kf_id):
+        max_gpu_gaussians = self.cfg.get('storage_manager', {}).get('max_gpu_gaussians', None)
+        if max_gpu_gaussians is None:
+            return convey_kf_id
+
+        current_gpu_gaussians = int(mapper._xyz.shape[0])
+        if current_gpu_gaussians <= max_gpu_gaussians:
+            return convey_kf_id
+
+        convey_kf_id = convey_kf_id.clone()
+        selected_kf_ids = set(convey_kf_id.tolist())
+        selected_gaussians = int(torch.isin(mapper._globalkf_id, convey_kf_id.to(mapper.device)).sum().item()) if convey_kf_id.numel() > 0 else 0
+        remaining_gpu_gaussians = current_gpu_gaussians - selected_gaussians
+
+        ongpu_kf_id = torch.arange(self.c2ws_storage_place.shape[0])[self.c2ws_storage_place == 1]
+        if ongpu_kf_id.numel() == 0:
+            return convey_kf_id
+
+        sorted_order = torch.argsort(distance_to_cur_c2w[ongpu_kf_id], descending=True)
+        for candidate_kf_id in ongpu_kf_id[sorted_order].tolist():
+            if remaining_gpu_gaussians <= max_gpu_gaussians:
+                break
+            if candidate_kf_id in selected_kf_ids:
+                continue
+
+            selected_kf_ids.add(candidate_kf_id)
+            convey_kf_id = torch.cat(
+                (convey_kf_id, torch.tensor([candidate_kf_id], dtype=convey_kf_id.dtype, device=convey_kf_id.device)),
+                dim=0,
+            )
+            gaussian_count = int((mapper._globalkf_id == candidate_kf_id).sum().item())
+            remaining_gpu_gaussians -= gaussian_count
+
+        return convey_kf_id
+
     def gpu2cpu(self, mapper, distance_to_cur_c2w):
         # 全都放到GPU上算了，啥时候用再在每一次跑之前丢到GPU上更新mapper;
         # 感觉这里还是按照frame_id合理些，把on_gpu_kfid对应的gaussians在cpu上删除然后替换为GPU上的就行;
-        ongpu_kf_id_mask   = (self.c2ws_storage_place==1)
-        convey_kf_id_mask  = torch.bitwise_and(ongpu_kf_id_mask,\
-                                               distance_to_cur_c2w>self.cfg['storage_manager']['distance_threshold'])
-        convey_kf_id       = torch.arange(ongpu_kf_id_mask.shape[0])[convey_kf_id_mask]
+        shared_size = min(self.c2ws_storage_place.shape[0], distance_to_cur_c2w.shape[0])
+        if shared_size <= 0:
+            return
+        ongpu_kf_id_mask   = (self.c2ws_storage_place[:shared_size] == 1)
+        convey_kf_id_mask  = torch.bitwise_and(
+            ongpu_kf_id_mask,
+            distance_to_cur_c2w[:shared_size] > self.cfg['storage_manager']['distance_threshold'],
+        )
+        convey_kf_id       = torch.arange(shared_size)[convey_kf_id_mask]
+        convey_kf_id       = self._extend_convey_kf_ids_for_gpu_cap(mapper, distance_to_cur_c2w, convey_kf_id)
 
         delete_gaussian_mask = torch.isin(self._globalkf_id, convey_kf_id)
         convey_gaussian_mask = torch.isin(mapper._globalkf_id, convey_kf_id.to(mapper.device))
-        
-        if convey_kf_id.sum() > 0:
+
+        if convey_kf_id.numel() > 0:
             # Update storage manager. 
             self._xyz           = torch.concat((self._xyz[~delete_gaussian_mask], mapper._xyz[convey_gaussian_mask].cpu()), dim=0)
             self._rgb           = torch.concat((self._rgb[~delete_gaussian_mask], mapper._rgb[convey_gaussian_mask].cpu()), dim=0)
@@ -68,9 +109,12 @@ class StorageManager: # Works in the same thread as the mapper.
 
     def cpu2gpu(self, mapper, distance_to_cur_c2w):
         
-        near_kf_id_mask  = distance_to_cur_c2w < self.cfg['storage_manager']['distance_threshold'] # (N, )
-        oncpu_kf_id_mask = (self.c2ws_storage_place==0)
-        convey_kf_id     = torch.arange(oncpu_kf_id_mask.shape[0])[oncpu_kf_id_mask & near_kf_id_mask]        
+        shared_size = min(self.c2ws_storage_place.shape[0], distance_to_cur_c2w.shape[0])
+        if shared_size <= 0:
+            return
+        near_kf_id_mask  = distance_to_cur_c2w[:shared_size] < self.cfg['storage_manager']['distance_threshold']
+        oncpu_kf_id_mask = (self.c2ws_storage_place[:shared_size] == 0)
+        convey_kf_id     = torch.arange(shared_size)[oncpu_kf_id_mask & near_kf_id_mask]
         convey_gaussian_mask = torch.isin(self._globalkf_id, convey_kf_id)
         
         if convey_gaussian_mask.sum() > 0:
@@ -93,12 +137,21 @@ class StorageManager: # Works in the same thread as the mapper.
     
     def run(self, tracker, mapper, viz_out):
         # STEP 1 Update globalkf_c2ws.
-        globalkf_c2ws = torch.linalg.inv(tq_to_matrix(tracker.video.poses_save[:viz_out['global_kf_id'][-1]])) # (N, 4, 4)
+        global_kf_ids = viz_out['global_kf_id']
+        if len(global_kf_ids) == 0:
+            return
+
+        required_size = int(torch.max(global_kf_ids).item()) + 1
+        globalkf_c2ws = torch.linalg.inv(tq_to_matrix(tracker.video.poses_save[:required_size])) # (N, 4, 4)
+        actual_size = int(globalkf_c2ws.shape[0])
+        if actual_size <= 0:
+            return
         cur_c2w       = viz_out['poses'][-1] # (4, 4)
         distance_to_cur_c2w = torch.norm(torch.matmul(torch.linalg.inv(cur_c2w).unsqueeze(0).cpu(), globalkf_c2ws.cpu())[:, :3, -1], dim=-1) # (N, ), cpu
 
-        new_added_size = viz_out['global_kf_id'][-1] - self.c2ws_storage_place.shape[0]
-        self.c2ws_storage_place = torch.concat((self.c2ws_storage_place, torch.ones(new_added_size, dtype=torch.float32)), dim=0)
+        new_added_size = actual_size - self.c2ws_storage_place.shape[0]
+        if new_added_size > 0:
+            self.c2ws_storage_place = torch.concat((self.c2ws_storage_place, torch.ones(new_added_size, dtype=torch.float32)), dim=0)
 
         # STEP 2 
         self.cpu2gpu(mapper, distance_to_cur_c2w)
