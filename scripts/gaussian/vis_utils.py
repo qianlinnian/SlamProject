@@ -75,6 +75,8 @@ def check_pcd_with_poses(pcd, poses, interp=1, scale=0.1, color=(1.0, 0.0, 0.0))
 def apply_colormap(image, cmap="viridis"):
     colormap = cm.get_cmap(cmap)
     colormap = torch.tensor(colormap.colors).to(image.device)  # type: ignore
+    image = torch.nan_to_num(image, nan=0.0, posinf=1.0, neginf=0.0)
+    image = torch.clamp(image, 0.0, 1.0)
     image_long = (image * 255).long()
     image_long_min = torch.min(image_long)
     image_long_max = torch.max(image_long)
@@ -128,7 +130,8 @@ def vis_rgbdnua(cfg, frame_id, pred_dict, gt_dict, return_image=False):
         os.makedirs(os.path.join(cfg['output']['save_dir'], 'uncert'), exist_ok=True)
         torch.save(gt_dict['uncert'].permute(1, 2, 0), os.path.join(cfg['output']['save_dir'], 'uncert', f'FrameId={str(frame_id.item()).zfill(5)}.pt'))
     
-    log_uncert = torch.log(gt_dict['uncert'].permute(1, 2, 0))
+    log_uncert = torch.log(torch.clamp(gt_dict['uncert'].permute(1, 2, 0), min=1e-12))
+    log_uncert = torch.nan_to_num(log_uncert, nan=0.0, posinf=0.0, neginf=0.0)
     # log_uncert = gt_dict['uncert'].permute(1, 2, 0)
     colored_log_uncert = apply_depth_colormap(log_uncert, None, near_plane=None, far_plane=None)
 

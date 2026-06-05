@@ -230,7 +230,15 @@ def judge_and_package_v3(dba_fusion, intrinsics):
             zero_mask = torch.bitwise_or(depths > dba_fusion.cfg['middleware']['max_depth'], depths_cov>dba_fusion.cfg['middleware']['cov_times']*(cov_median))
             # zero_mask = depths > dba_fusion.cfg['middleware']['max_depth']
             depths[zero_mask] = 0.0
-            depths_cov[depths==0] = depths_cov[depths>0].max()
+            if not torch.any(depths > 0):
+                return None
+            valid_cov = depths_cov[depths > 0]
+            if valid_cov.numel() > 0:
+                depths_cov[depths == 0] = valid_cov.max()
+            else:
+                finite_cov = depths_cov[torch.isfinite(depths_cov)]
+                fill_cov = finite_cov.max() if finite_cov.numel() > 0 else torch.tensor(1.0, device=depths_cov.device, dtype=depths_cov.dtype)
+                depths_cov[depths == 0] = fill_cov
             
             # depths_cov[zero_mask] = 0.0
             w2c_tqs    = dba_fusion.video.poses[valid_localkf_id]

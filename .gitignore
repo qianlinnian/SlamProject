@@ -6,3 +6,4 @@ ckpts/*
 output/*
 dataset/
 dataset_zips/
+run_logs/*

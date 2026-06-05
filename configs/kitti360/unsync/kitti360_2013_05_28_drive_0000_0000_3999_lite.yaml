@@ -1,0 +1,118 @@
+use_wandb: False
+use_sky: False
+use_dynamic: False
+use_refine: False
+
+
+mode: 'vio' # 'vo' or 'vio'
+
+
+device:
+  tracker: 'cuda:0'
+  mapper: 'cuda:0'
+
+dataset:
+  root: /root/autodl-tmp/VINGS-Mono/dataset/KITTI360_UNSYNC/2013_05_28/2013_05_28_drive_0000_sync_0000_3999/
+  module: datasets.kitti360_unsync
+  rgb_strip: 1
+
+middleware:
+  cov_times: 1000
+  max_cov: 2e4
+  max_depth: 30
+
+output:
+  save_dir: /root/autodl-tmp/VINGS-Mono/output/
+
+# Unsync
+# [788.629315, 786.382230, 687.158398, 317.752196]
+intrinsic:
+  H: 512
+  W: 1392
+  fu: 786.382230
+  fv: 788.629315
+  cu: 317.752196
+  cv: 687.158398
+  bg: 0
+  distortion_coeffs: [-0.344441, 0.141678, 0.000414, -0.000222, -0.029608]
+
+# i2c: [[0.99944133, -0.00228419, -0.03334389, -0.03734697],
+#      [0.03268308, -0.14183394, 0.98935078, 1.75837780],
+#      [-0.00698916, -0.98988784, -0.14168005, 0.59911765],
+#      [0.00000000, 0.00000000, 0.00000000, 1.00000000]]
+
+frontend:
+  weight: /root/autodl-tmp/VINGS-Mono/ckpts/droid.pth
+  image_size: [264, 728]
+  buffer: 80
+  filter_thresh: 2.4
+  c2i: None
+  visual_only: 0 # 0 means VIO and 1 means VO.
+  warm_up: 8
+  beta: 0.3
+  frontend_nms: 1
+  keyframe_thresh: 4.0
+  frontend_window: 5
+  frontend_thresh: 16.0 
+  frontend_radius: 2
+  active_window: 12
+  # CovisibleGraph
+  max_factors: 48
+  far_threshold: 0.02
+  inac_range: 3
+  mask_threshold: -1.0
+  skip_edge: [-4,-5,-6]
+  translation_threshold: 0.5
+  # Vis.
+  show_plot: False
+
+adc_args:
+  accum_thresh: 0.98
+
+mapping_args:
+  init_points: 12000
+  add_points: 6000
+training_args:
+  num_keyframe: 4
+  iters: 50
+  lr: # Copy form 2DGS.
+    _xyz_lr: 0.00002
+    _rgb_lr: 0.0025
+    _opacity_lr: 0.05
+    _scaling_lr: 0.001
+    _rotation_lr: 0.001
+    _c2c_lr: 0.0001
+  loss_weights:
+    rgb_loss: 1.0
+    depth_loss: 1.0
+    alpha_loss: 0.0  # 10.0
+    normal_loss: 0.01 # 0.05
+    dist_loss: 0.0
+
+use_vis: False
+vis:
+  bev_w2c: [[ 9.89419560e-01, -1.11309971e-01,  9.30538835e-02, 2.61090245e+02],
+       [-1.10667475e-01, -9.93784405e-01, -1.20526806e-02, -2.05272773e+02],
+       [ 9.38170817e-02,  1.62711952e-03, -9.95588121e-01, 5.01876818e+02],
+       [ 0.00000000e+00,  0.00000000e+00,  0.00000000e+00, 1.00000000e+00]]
+  bev_intrinsic_dict:
+    H: 758
+    W: 1372
+    fu: 656.44725606860459
+    fv: 656.44725606860459
+    cu: 378.5 # cy
+    cv: 685.5 # cx
+  pose_scale: 0.02
+
+
+
+
+
+
+use_metric: False
+
+# 2024/10/01
+use_storage_manager: True
+storage_manager:
+  distance_threshold: 60.0
+

@@ -48,6 +48,111 @@ class GaussianBase:
                               'inv_opacity': inverse_sigmoid}
 
         self.initialized_state = False
+
+    def _debug_tensor_stats(self, name, tensor):
+        if tensor is None:
+            return f"{name}: None"
+        if not torch.is_tensor(tensor):
+            return f"{name}: non_tensor type={type(tensor).__name__}"
+
+        shape = tuple(tensor.shape)
+        dtype = str(tensor.dtype)
+        device = str(tensor.device)
+        numel = tensor.numel()
+        if numel == 0:
+            return f"{name}: shape={shape} dtype={dtype} device={device} numel=0"
+
+        data = tensor.detach()
+        finite_mask = torch.isfinite(data)
+        finite_count = int(finite_mask.sum().item())
+        nan_count = int(torch.isnan(data).sum().item()) if torch.is_floating_point(data) or torch.is_complex(data) else 0
+        inf_count = int(torch.isinf(data).sum().item()) if torch.is_floating_point(data) or torch.is_complex(data) else 0
+
+        if finite_count > 0:
+            finite_vals = data[finite_mask]
+            stats_vals = finite_vals if (torch.is_floating_point(finite_vals) or torch.is_complex(finite_vals)) else finite_vals.to(torch.float32)
+            min_val = float(stats_vals.min().item())
+            max_val = float(stats_vals.max().item())
+            mean_val = float(stats_vals.mean().item())
+            stats = f"min={min_val:.6g} max={max_val:.6g} mean={mean_val:.6g}"
+        else:
+            stats = "min=nan max=nan mean=nan"
+
+        return (
+            f"{name}: shape={shape} dtype={dtype} device={device} numel={numel} "
+            f"finite={finite_count}/{numel} nan={nan_count} inf={inf_count} {stats}"
+        )
+
+    def _debug_safe_float(self, value):
+        try:
+            if torch.is_tensor(value):
+                return float(value.detach().item())
+            return float(value)
+        except Exception:
+            return None
+
+    def _emit_backward_debug(self, batch, curr_iter, curr_id, pred_dict, gt_dict, total_loss, err):
+        lines = []
+        frame_ids = batch.get("viz_out_idx_to_f_idx")
+        frame_id = None
+        if frame_ids is not None:
+            try:
+                frame_id = int(frame_ids[curr_id].item())
+            except Exception:
+                frame_id = None
+
+        global_kf = batch.get("global_kf_id")
+        global_kf_id = None
+        if global_kf is not None:
+            try:
+                global_kf_id = int(global_kf[curr_id].item())
+            except Exception:
+                global_kf_id = None
+
+        lines.append("[KITTI360_DEBUG] backward failure diagnostics begin")
+        lines.append(f"[KITTI360_DEBUG] exception={type(err).__name__}: {err}")
+        lines.append(
+            f"[KITTI360_DEBUG] time_idx={getattr(self, 'time_idx', None)} curr_iter={curr_iter} "
+            f"curr_id={curr_id} frame_id={frame_id} global_kf_id={global_kf_id}"
+        )
+        lines.append(
+            f"[KITTI360_DEBUG] gaussian_total={int(self._xyz.shape[0])} "
+            f"stable_count={int(self._stable_mask.sum().item()) if torch.is_tensor(self._stable_mask) and self._stable_mask.numel() > 0 else 0}"
+        )
+        lines.append(f"[KITTI360_DEBUG] total_loss={self._debug_safe_float(total_loss)}")
+
+        for key in ["rgb", "depth", "accum", "radii", "normal", "surf_normal", "dist"]:
+            if key in pred_dict:
+                lines.append("[KITTI360_DEBUG] " + self._debug_tensor_stats(f"pred.{key}", pred_dict[key]))
+        for key in ["rgb", "depth", "depth_cov", "uncert"]:
+            if key in gt_dict:
+                lines.append("[KITTI360_DEBUG] " + self._debug_tensor_stats(f"gt.{key}", gt_dict[key]))
+
+        try:
+            sky_mask = gt_dict['rgb'].sum(axis=0) == 0.0
+            valid_mask = torch.bitwise_and(~sky_mask, gt_dict['depth'].sum(axis=0) > 0.0)
+            lines.append(
+                f"[KITTI360_DEBUG] mask valid={int(valid_mask.sum().item())}/{valid_mask.numel()} "
+                f"sky={int(sky_mask.sum().item())}/{sky_mask.numel()}"
+            )
+            if 'radii' in pred_dict:
+                positive_radii = int((pred_dict['radii'] > 0).sum().item())
+                lines.append(f"[KITTI360_DEBUG] radii_positive={positive_radii}/{pred_dict['radii'].numel()}")
+        except Exception as mask_err:
+            lines.append(f"[KITTI360_DEBUG] mask_stats_failed={type(mask_err).__name__}: {mask_err}")
+
+        print("\n".join(lines), flush=True)
+
+    def _is_empty_render(self, pred_dict):
+        radii = pred_dict.get('radii')
+        if radii is None or radii.numel() == 0:
+            return True, 0
+
+        positive_radii = int((radii > 0).sum().item())
+        accum = pred_dict.get('accum')
+        has_alpha = accum is not None and accum.numel() > 0 and bool((accum > 0).any().item())
+        is_empty = positive_radii == 0 or not has_alpha
+        return is_empty, positive_radii
     
     def setup_optimizer(self):
         cfg = self.cfg
@@ -349,24 +454,66 @@ class GaussianBase:
         depths_cov         = batch["depths_cov"]              # (N, 344, 616, 1) 
         intrinsic_dict     = batch["intrinsic"]               # {'fu', 'fv', 'cu', 'cv', 'H', 'W'}
         # pixel_masks        = batch["pixel_mask"]              # (N, 344, 616)
+        consecutive_empty_iters = 0
+        max_consecutive_empty_iters = 8
         
         for curr_iter in range(train_iters):
             
             self.wandber.log_time('forward_time')
 
-            # curr_id = random.randint(0, poses.shape[0]-2) # vo_nerfslam
-            curr_id = random.randint(0, poses.shape[0]-1)
-            
-            
-            if 'use_mobile' in self.cfg.keys() and self.cfg['use_mobile'] and curr_iter == train_iters - 1:
-                curr_id = max(0, poses.shape[0]-1)
-            
-            c2w = poses[curr_id]
-            w2c = torch.linalg.inv(c2w)
-            
-            pred_dict = self.render(w2c, intrinsic_dict, None, w2c2=torch.linalg.inv(poses[min(curr_id+1, poses.shape[0]-1)]))
-            gt_dict = {'rgb': images[curr_id].permute(2,0,1), 'depth': depths[curr_id].permute(2,0,1), 'uncert': depths_cov[curr_id].permute(2,0,1), 'c2w': c2w}
-            gt_dict['depth_cov'] = depths_cov[curr_id].permute(2,0,1)
+            pred_dict, gt_dict, c2w, curr_id = None, None, None, None
+            max_render_retry = 4
+            empty_render = False
+            positive_radii = 0
+
+            for retry_id in range(max_render_retry):
+                # curr_id = random.randint(0, poses.shape[0]-2) # vo_nerfslam
+                curr_id = random.randint(0, poses.shape[0]-1)
+
+                if 'use_mobile' in self.cfg.keys() and self.cfg['use_mobile'] and curr_iter == train_iters - 1:
+                    curr_id = max(0, poses.shape[0]-1)
+
+                c2w = poses[curr_id]
+                w2c = torch.linalg.inv(c2w)
+
+                pred_dict = self.render(w2c, intrinsic_dict, None, w2c2=torch.linalg.inv(poses[min(curr_id+1, poses.shape[0]-1)]))
+                gt_dict = {'rgb': images[curr_id].permute(2,0,1), 'depth': depths[curr_id].permute(2,0,1), 'uncert': depths_cov[curr_id].permute(2,0,1), 'c2w': c2w}
+                gt_dict['depth_cov'] = depths_cov[curr_id].permute(2,0,1)
+
+                empty_render, positive_radii = self._is_empty_render(pred_dict)
+                if not empty_render:
+                    break
+
+                print(
+                    f"[KITTI360_DEBUG] empty render skip candidate time_idx={getattr(self, 'time_idx', None)} "
+                    f"curr_iter={curr_iter} retry={retry_id} curr_id={curr_id} "
+                    f"frame_id={int(batch['viz_out_idx_to_f_idx'][curr_id].item()) if 'viz_out_idx_to_f_idx' in batch else None} "
+                    f"gaussian_total={int(self._xyz.shape[0])} radii_positive={positive_radii}",
+                    flush=True,
+                )
+
+            if empty_render:
+                consecutive_empty_iters += 1
+                print(
+                    f"[KITTI360_DEBUG] skip iter due to empty render time_idx={getattr(self, 'time_idx', None)} "
+                    f"curr_iter={curr_iter} gaussian_total={int(self._xyz.shape[0])}",
+                    flush=True,
+                )
+                self.optimizer.zero_grad()
+                if self.cfg['use_sky']:
+                    self.sky_model.optimizer.zero_grad()
+                self.wandber.log_time('forward_time')
+                if consecutive_empty_iters >= max_consecutive_empty_iters:
+                    print(
+                        f"[KITTI360_DEBUG] abort training loop due to consecutive empty renders "
+                        f"time_idx={getattr(self, 'time_idx', None)} "
+                        f"curr_iter={curr_iter} consecutive_empty_iters={consecutive_empty_iters}",
+                        flush=True,
+                    )
+                    break
+                continue
+
+            consecutive_empty_iters = 0
             
             self.wandber.log_time('forward_time')
             
@@ -378,8 +525,12 @@ class GaussianBase:
             self.wandber.log_time('backward_time')
             pred_dict['time_idx'] = self.time_idx
             total_loss = get_loss(self.cfg, pred_dict, gt_dict)
-            
-            total_loss.backward()
+
+            try:
+                total_loss.backward()
+            except RuntimeError as err:
+                self._emit_backward_debug(batch, curr_iter, curr_id, pred_dict, gt_dict, total_loss, err)
+                raise
             self.wandber.log_time('backward_time')
 
             # (1) Record Importance Score & Error Score. (2) Multiply weights by accumulate scores to avoid forgetting problem.

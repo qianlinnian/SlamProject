@@ -30,11 +30,21 @@ def get_pointcloud_v1(tfer, c2w, gt_rgb: torch.Tensor, gt_depth: torch.Tensor, p
     H, W = gt_rgb.shape[-2], gt_rgb.shape[-1]
     rgb = gt_rgb.unsqueeze(0)
     all_valid_num = (gt_depth>0).sum()
+    if all_valid_num.item() == 0:
+        empty_xyz = torch.empty((0, 3), device=gt_depth.device, dtype=torch.float32)
+        empty_rgb = torch.empty((0, 3), device=gt_rgb.device, dtype=gt_rgb.dtype)
+        empty_q = torch.empty((0, 4), device=gt_depth.device, dtype=torch.float32)
+        return empty_xyz, empty_rgb, empty_q
     
     gt_depth_cp = gt_depth.squeeze(0) + 0.0
     gt_depth_cp[pred_accum.squeeze(0)>tfer.cfg['adc_args']['accum_thresh']] = 0
     accum_valid_num = (gt_depth_cp>0).sum()
-    N_samples = int(accum_valid_num/all_valid_num * N_points)
+    if accum_valid_num.item() == 0:
+        empty_xyz = torch.empty((0, 3), device=gt_depth.device, dtype=torch.float32)
+        empty_rgb = torch.empty((0, 3), device=gt_rgb.device, dtype=gt_rgb.dtype)
+        empty_q = torch.empty((0, 4), device=gt_depth.device, dtype=torch.float32)
+        return empty_xyz, empty_rgb, empty_q
+    N_samples = int((accum_valid_num.float() / all_valid_num.float()).item() * N_points)
 
     pc_all = tfer.transform(gt_depth.squeeze(0), 'depth', 'world', pose=c2w) # (N, 3)
     N_samples = min(N_samples, pc_all.shape[0])

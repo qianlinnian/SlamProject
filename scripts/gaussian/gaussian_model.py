@@ -134,7 +134,15 @@ class GaussianModel(GaussianBase):
             pred_accum[rgb_error > 0.1] = 0.0
 
         # Get point cloud and concat it to GaussianModel.
-        new_added_pc, new_added_pc_color, unnorm_rots = get_pointcloud(self.tfer, new_added_c2w, new_added_color.permute(2, 0, 1), new_added_depth.permute(2, 0, 1), pred_accum, 40000) # 30000
+        max_new_gaussians = self.cfg.get('training_args', {}).get('max_new_gaussians_per_frame', 40000)
+        new_added_pc, new_added_pc_color, unnorm_rots = get_pointcloud(
+            self.tfer,
+            new_added_c2w,
+            new_added_color.permute(2, 0, 1),
+            new_added_depth.permute(2, 0, 1),
+            pred_accum,
+            max_new_gaussians,
+        ) # 30000
         num_pts = new_added_pc.shape[0]
 
         dist2 = torch.clamp_min(distCUDA2(new_added_pc), 0.0000001)
@@ -235,7 +243,23 @@ class GaussianModel(GaussianBase):
             intrinsic_dict = batch["intrinsic"]
             for kf_idx in range(batch["poses"].shape[0]):
                 c2w, gt_rgb = batch["poses"][kf_idx], batch["images"][kf_idx].permute(2, 0, 1) # (4, 4), (3, H, W)
-                pred_rgb = self.render(torch.linalg.inv(c2w), intrinsic_dict)['rgb']
+                pred_dict = self.render(torch.linalg.inv(c2w), intrinsic_dict)
+                empty_render, positive_radii = self._is_empty_render(pred_dict)
+                if empty_render:
+                    frame_id = None
+                    if "viz_out_idx_to_f_idx" in batch:
+                        frame_id = int(batch["viz_out_idx_to_f_idx"][kf_idx].item())
+                    print(
+                        f"[KITTI360_DEBUG] storage_control skip empty render time_idx={getattr(self, 'time_idx', None)} "
+                        f"current_iter={current_iter} kf_idx={kf_idx} frame_id={frame_id} "
+                        f"gaussian_total={int(self._xyz.shape[0])} radii_positive={positive_radii}",
+                        flush=True,
+                    )
+                    self.optimizer.zero_grad()
+                    if self._zeros.grad is not None:
+                        self._zeros.grad.zero_()
+                    continue
+                pred_rgb = pred_dict['rgb']
                 (torch.abs(pred_rgb-gt_rgb)[:, gt_rgb.sum(axis=0)>0]).mean().backward()
                 temp_importance_scores += self._zeros.grad.detach()[:, 0]
                 self.optimizer.zero_grad()

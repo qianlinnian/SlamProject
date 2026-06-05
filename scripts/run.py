@@ -42,20 +42,21 @@ class Runner:
         if 'phone' not in cfg['dataset']['module']: self.tracker.dataset_length = len(self.dataset)
         
         self.mapper = GaussianModel(cfg)
-
-        self.use_loop = bool(cfg.get('use_loop', False)) and ('looper' in cfg)
-        self.looper = LoopModel(cfg) if self.use_loop else None
-
+        
+        self.looper = LoopModel(cfg) if ('use_loop' in cfg.keys() and cfg['use_loop']) else None
+        
         if 'use_metric' in cfg.keys() and cfg['use_metric']:
             self.metric_predictor = Metric_Model(cfg) 
         
         if 'use_storage_manager' in cfg.keys() and cfg['use_storage_manager']:
             self.use_storage_manager = True
             self.storage_manager = StorageManager(cfg)
+            self.storage_run_interval = self.cfg.get('storage_manager', {}).get('run_interval', 10)
             if cfg['dataset']['module'] != 'phone':
                 self.storage_manager.dataset_length = self.dataset.rgbinfo_dict['timestamp'][-1] - self.dataset.rgbinfo_dict['timestamp'][0] 
         else:
             self.use_storage_manager = False
+            self.storage_run_interval = None
 
     def run(self):
         # Load imu data.
@@ -92,11 +93,11 @@ class Runner:
                 # Save and check.
                 new_viz_out = self.mapper.run(viz_out, True)
                 
-                if self.use_loop:
+                if 'use_loop' in list(self.cfg.keys()) and self.cfg['use_loop']:
                     if viz_out["global_kf_id"][-1] > 10 and viz_out["global_kf_id"][-1] % 3 == 0:
                         self.looper.run(self.mapper, self.tracker, viz_out, idx)
 
-                if self.use_storage_manager and (idx+1) % 10 == 0:
+                if self.use_storage_manager and (idx+1) % self.storage_run_interval == 0:
                     self.storage_manager.run(self.tracker, self.mapper, viz_out)
                     torch.cuda.empty_cache()
                 
