@@ -2,6 +2,7 @@ import numpy as np
 import shutil
 import torch
 import os
+from frontend import gtsam_compat
 from frontend.dbaf import DBAFusion
 from gaussian.gaussian_model import GaussianModel
 from gaussian.vis_utils import save_ply, vis_map

@@ -2,6 +2,7 @@ import numpy as np
 import shutil
 import torch
 import os
+from frontend import gtsam_compat
 from frontend.dbaf import DBAFusion
 from gaussian.gaussian_model import GaussianModel
 from gaussian.vis_utils import save_ply
@@ -97,21 +98,31 @@ def mapping(cfg, tracker2mapper_queue,mapper2server_queue):
             torch.cuda.empty_cache()
             
             rendered_map     = vis_map(None, mapper,True) # numpy, (3,H,W) or (H,W,3)
-            
-            raw_H, raw_W     = rendered_map.shape[0], rendered_map.shape[1] 
+
+            raw_H, raw_W     = rendered_map.shape[0], rendered_map.shape[1]
             new_H, new_W     = raw_H//2, raw_W//2
-            
+
             rendered_map     = cv2.resize(rendered_map, (new_W, new_H))
-            # print('run_mul/lin102: ', mapper.vis_rgbdnua.shape, mapper.vis_rgbdnua.max())
-            
+
             raw_rgbdnua = mapper.vis_rgbdnua
-            new_rgbdnua = np.concatenate((raw_rgbdnua[:, :616], np.concatenate((raw_rgbdnua[:344, 616:616*2], raw_rgbdnua[-344:, 616*2:616*3]), axis=0)), axis=1)
-            
-            rendered_rgbdnua = cv2.resize(new_rgbdnua, (new_W, new_H))
-            
-            rendered_image   = np.concatenate([rendered_map, rendered_rgbdnua], axis=1)
-            
-            # print("shape!!!!:",rendered_image.shape)
+            rgbdnua_h, rgbdnua_w = raw_rgbdnua.shape[0], raw_rgbdnua.shape[1]
+            mid_w = rgbdnua_w // 2
+
+            # Build a simpler mobile-friendly layout:
+            # top row is the main rendered map; bottom area contains two columns
+            # split directly from the official rgbdnua canvas.
+            left_aux = raw_rgbdnua[:, :mid_w]
+            right_aux = raw_rgbdnua[:, mid_w:]
+
+            aux_h = new_H
+            left_w = max(1, new_W // 2)
+            right_w = max(1, new_W - left_w)
+
+            left_aux = cv2.resize(left_aux, (left_w, aux_h))
+            right_aux = cv2.resize(right_aux, (right_w, aux_h))
+            aux_row = np.concatenate([left_aux, right_aux], axis=1)
+
+            rendered_image = np.concatenate([rendered_map, aux_row], axis=0)
             mapper2server_queue.put(rendered_image)
             cnt+=1
             if 'use_mobile' in cfg.keys() and cfg['use_mobile']:
