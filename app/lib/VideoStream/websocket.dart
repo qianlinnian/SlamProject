@@ -28,6 +28,10 @@ class WebSocket {
     this.url = url;
   }
 
+  bool get isConnected {
+    return _channel != null && _channel!.closeCode == null;
+  }
+
   Stream<dynamic> get stream {
     if (_channel != null) {
       return _channel!.stream;
@@ -42,8 +46,14 @@ class WebSocket {
   // ---------------------- Functions ----------------------- //
 
   /// Connects the current application to a websocket
-  void connect() async {
-    _channel = WebSocketChannel.connect(Uri.parse(Constants.videoWebsocketURL));
+  Future<void> connect() async {
+    if (isConnected) {
+      return;
+    }
+    disconnect();
+    _channel = await WebSocketChannel.connect(
+      Uri.parse(Constants.videoWebsocketURL),
+    );
   }
 
 //
@@ -61,6 +71,7 @@ class WebSocket {
   void disconnect() {
     if (_channel != null) {
       _channel!.sink.close(status.goingAway);
+      _channel = null;
     }
   }
 }

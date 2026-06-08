@@ -10,5 +10,5 @@
  */
 class Constants {
   static String videoWebsocketURL =
-      "ws://100.80.60.244:5000"; // 本地IP，通过SSH隧道转发到服务器
+      "ws://172.20.10.3:5000"; // 热点IP，通过SSH隧道转发到服务器
 }

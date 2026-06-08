@@ -53,7 +53,7 @@ class MyApp extends StatelessWidget {
           backgroundColor: Color(0xFFFFA000), // FAB背景色
           foregroundColor: Colors.white, // FAB图标颜色
         ),
-        cardTheme: CardTheme(
+        cardTheme: CardThemeData(
           color: Colors.white,
           shadowColor: Colors.grey,
           elevation: 6,
