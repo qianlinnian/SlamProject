@@ -4,7 +4,8 @@ use_dynamic: False
 use_pose_refine: False
 
 mode: 'vio' # 'vo' or 'vio'
-tracking_only: False
+tracking_only: True
+save_tracking_pose_only: True
 
 
 device:
@@ -15,7 +16,7 @@ dataset:
   root: /root/autodl-tmp/VINGS-Mono/dataset/2011_09_30/2011_09_30_drive_0027_sync/
   module: datasets.kitti_sync
   rgb_strip: 1
-  imu_delay: 0.09
+  imu_delay: 0.0
 
 middleware:
   cov_times: 300000
@@ -23,7 +24,7 @@ middleware:
   max_depth: 30
 
 output:
-  save_dir: /root/autodl-tmp/VINGS-Mono/output/
+  save_dir: /tmp/vings_output/
 
 # 707.0912 707.0912 601.8873 183.1104
 intrinsic:
@@ -82,7 +83,7 @@ training_args:
     normal_loss: 0.0 # 0.05
     dist_loss: 0.0
 
-use_vis: True
+use_vis: False
 vis:
   bev_w2c: [[-7.11877554e-01,  7.00066977e-01,  5.60051351e-02, -6.17312594e+01],
        [ 7.02237569e-01,  7.08450207e-01,  7.04322445e-02, 6.42232503e+01],
@@ -96,9 +97,6 @@ vis:
     cu: 740 # cy
     cv: 959.5 # cx
   pose_scale: 1.0
-  map_w2c_auto: True
-  map_w2c_auto_margin: 1.25
-  map_w2c_auto_min_depth: 10.0
 
 
 use_metric: False

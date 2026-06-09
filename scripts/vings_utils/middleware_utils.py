@@ -182,6 +182,27 @@ def judge_and_package_v2(dba_fusion, intrinsics):
             # depths_cov[zero_mask] = 0.0
             w2c_tqs    = dba_fusion.video.poses[valid_localkf_id]
             c2ws       = torch.linalg.inv(tq_to_matrix(w2c_tqs))
+            finite_pose_mask = torch.isfinite(c2ws).flatten(1).all(dim=1)
+            if not torch.all(finite_pose_mask):
+                c2ws = c2ws[finite_pose_mask]
+                tstamps = tstamps[finite_pose_mask]
+                rgbs = rgbs[finite_pose_mask]
+                depths = depths[finite_pose_mask]
+                depths_cov = depths_cov[finite_pose_mask]
+                localkf_id_to_globalkf_id = localkf_id_to_globalkf_id[finite_pose_mask]
+                valid_localkf_id = valid_localkf_id[finite_pose_mask]
+                if c2ws.shape[0] == 0:
+                    return None
+
+            mapping_args = dba_fusion.cfg.get('mapping_args', {})
+            pose_translation_scale = float(mapping_args.get('pose_translation_scale', 1.0))
+            if pose_translation_scale != 1.0:
+                if not hasattr(dba_fusion, 'mapper_pose_origin'):
+                    dba_fusion.mapper_pose_origin = c2ws[0, :3, 3].detach().clone()
+                pose_origin = dba_fusion.mapper_pose_origin.to(c2ws.device, dtype=c2ws.dtype)
+                c2ws = c2ws.clone()
+                c2ws[:, :3, 3] = (c2ws[:, :3, 3] - pose_origin) * pose_translation_scale
+
             intrinsic  = {'fu': intrinsics[1], 'fv':intrinsics[0], 'cu':intrinsics[3], 'cv':intrinsics[2], 'H':depths.shape[1], 'W':depths.shape[2]}
             rgbs[(depths.squeeze(-1)==0)] = 0.0
             pixel_mask = torch.ones_like(depths.squeeze(-1), dtype=torch.bool)
@@ -229,7 +250,10 @@ def judge_and_package_v3(dba_fusion, intrinsics):
             zero_mask = torch.bitwise_or(depths > dba_fusion.cfg['middleware']['max_depth'], depths_cov>dba_fusion.cfg['middleware']['cov_times']*(cov_median))
             # zero_mask = depths > dba_fusion.cfg['middleware']['max_depth']
             depths[zero_mask] = 0.0
-            depths_cov[depths==0] = depths_cov[depths>0].max()
+            valid_depth_mask = depths > 0
+            if not torch.any(valid_depth_mask):
+                return None
+            depths_cov[depths==0] = depths_cov[valid_depth_mask].max()
             
             # depths_cov[zero_mask] = 0.0
             w2c_tqs    = dba_fusion.video.poses[valid_localkf_id]

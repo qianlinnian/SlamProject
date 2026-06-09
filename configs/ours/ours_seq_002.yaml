@@ -1,0 +1,123 @@
+# ours_seq_002.yaml
+use_wandb: False
+use_sky: False
+use_dynamic: False
+use_loop: False
+use_pose_refine: False
+use_metric: False
+
+mode: 'vo' # 'vo' or 'vio' or 'vo_nerfslam'
+
+
+device:
+  tracker: 'cuda:0'
+  mapper: 'cuda:0'
+
+dataset:
+  root: /autodl-fs/data/OURS/ours_seq_002/
+  module: datasets.ours_vio
+  imu_delay: 0.0
+
+middleware:
+  cov_times: 200
+  max_cov: 3e3
+  max_depth: 25
+
+output:
+  save_dir: /root/autodl-tmp/VINGS-Mono/output/
+
+intrinsic: # H/W from metadata/summary.txt; cu is cy, cv is cx in this codebase.
+  H: 720
+  W: 1280
+  fu: 1116.84
+  fv: 1128.43
+  cu: 372.83
+  cv: 580.23
+  resolution_scale: 1.0
+  bg: 0
+
+frontend:
+  # DBAFusion
+  weight: /root/autodl-tmp/VINGS-Mono/ckpts/droid.pth
+  image_size: [360, 640]
+  buffer: 1024
+  filter_thresh: 2.4
+  c2i: None
+  # DBAFusionFrontend
+  visual_only: 1 # 0 means VIO and 1 means VO.
+  warm_up: 8
+  beta: 0.3
+  frontend_nms: 1
+  keyframe_thresh: 4.0
+  frontend_window: 5
+  frontend_thresh: 16.0
+  frontend_radius: 2
+  active_window: 12
+  # CovisibleGraph
+  max_factors: 48
+  far_threshold: 0.02
+  inac_range: 3
+  mask_threshold: -1.0
+  skip_edge: [-4, -5, -6]
+  translation_threshold: 0.5
+  # Vis.
+  show_plot: False
+
+adc_args:
+  accum_thresh: 0.98
+
+training_args:
+  num_keyframe: 8
+  iters: 24
+  max_new_gaussians_per_frame: 15000
+  lr: # Copy form 2DGS.
+    _xyz_lr: 0.00001
+    _rgb_lr: 0.0001
+    _opacity_lr: 0.05
+    _scaling_lr: 0.001
+    _rotation_lr: 0.001
+  loss_weights:
+    rgb_loss: 1.0
+    depth_loss: 1.0
+    alpha_loss: 1.0
+    normal_loss: 0.1
+    dist_loss: 0.0
+    smooth_loss: 0.0
+
+use_vis: True
+vis:
+  # Global top-down view estimated from the seq002 point cloud after using image_size [360, 640].
+  bev_w2c: [[ 1.00000000, 0.00000000, 0.00000000, 2.63553836],
+            [ 0.00000000, 0.00000000, -1.00000000, 6.81538206],
+            [ 0.00000000, 1.00000000, 0.00000000, 19.50000000],
+            [ 0.00000000, 0.00000000, 0.00000000, 1.00000000]]
+  bev_intrinsic_dict:
+    H: 540
+    W: 960
+    fu: 420.0
+    fv: 420.0
+    cu: 270.0 # cy
+    cv: 480.0 # cx
+  pose_scale: 0.28
+
+
+
+# 2024/10/01
+use_storage_manager: False
+storage_manager:
+  distance_threshold: 30.0
+  run_interval: 4
+  max_gpu_gaussians: 1500000
+
+
+looper:
+  lightglue_weight_dir: /root/autodl-tmp/VINGS-Mono/lightglue/
+  onnx_w: 512
+  H: 480
+  W: 272
+  # nearest_k_frame: 10
+  loop_radius: 15
+  is_loop_min_match_num: 45
+  search_num: 30
+  is_loop_mse_threshold: 0.15
+  is_loop_med_times: 100.0

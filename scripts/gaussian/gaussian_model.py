@@ -58,7 +58,7 @@ class GaussianModel(GaussianBase):
             pose = poses[idx] # (4, 4)
             depth = depths[idx] # (H, W)
             rgb = images[idx] # (H, W, 3)
-            xyz, rgb, q = get_pointcloud(self.tfer, pose, rgb.permute(2, 0, 1), depth.permute(2, 0, 1), None, 50000) 
+            xyz, rgb, q = get_pointcloud(self.tfer, pose, rgb.permute(2, 0, 1), depth.permute(2, 0, 1), None, int(self.cfg.get('mapping_args', {}).get('init_points', 50000))) 
             pc_world_list.append(xyz)
             pc_color_list.append(rgb)
             pc_rots_list.append(q)
@@ -134,8 +134,10 @@ class GaussianModel(GaussianBase):
             pred_accum[rgb_error > 0.1] = 0.0
 
         # Get point cloud and concat it to GaussianModel.
-        new_added_pc, new_added_pc_color, unnorm_rots = get_pointcloud(self.tfer, new_added_c2w, new_added_color.permute(2, 0, 1), new_added_depth.permute(2, 0, 1), pred_accum, 40000) # 30000
+        new_added_pc, new_added_pc_color, unnorm_rots = get_pointcloud(self.tfer, new_added_c2w, new_added_color.permute(2, 0, 1), new_added_depth.permute(2, 0, 1), pred_accum, int(self.cfg.get('mapping_args', {}).get('new_points', 40000))) # 30000
         num_pts = new_added_pc.shape[0]
+        if num_pts == 0:
+            return
 
         dist2 = torch.clamp_min(distCUDA2(new_added_pc), 0.0000001)
         log_scales = torch.log(1.0 * torch.sqrt(dist2))[..., None].repeat(1, 2)
@@ -235,11 +237,30 @@ class GaussianModel(GaussianBase):
             intrinsic_dict = batch["intrinsic"]
             for kf_idx in range(batch["poses"].shape[0]):
                 c2w, gt_rgb = batch["poses"][kf_idx], batch["images"][kf_idx].permute(2, 0, 1) # (4, 4), (3, H, W)
-                pred_rgb = self.render(torch.linalg.inv(c2w), intrinsic_dict)['rgb']
-                (torch.abs(pred_rgb-gt_rgb)[:, gt_rgb.sum(axis=0)>0]).mean().backward()
-                temp_importance_scores += self._zeros.grad.detach()[:, 0]
+                pred_dict = self.render(torch.linalg.inv(c2w), intrinsic_dict)
+                radii = pred_dict['radii']
+                visible_gaussians = int((radii > 0).sum().item()) if radii.numel() else 0
+                valid_rgb_mask = gt_rgb.sum(axis=0) > 0
+                if visible_gaussians == 0 or not torch.any(valid_rgb_mask):
+                    self.optimizer.zero_grad()
+                    if self._zeros.grad is not None:
+                        self._zeros.grad.zero_()
+                    continue
+
+                pred_rgb = pred_dict['rgb']
+                storage_loss = torch.abs(pred_rgb - gt_rgb)[:, valid_rgb_mask].mean()
+                if not torch.isfinite(storage_loss):
+                    self.optimizer.zero_grad()
+                    if self._zeros.grad is not None:
+                        self._zeros.grad.zero_()
+                    continue
+
+                storage_loss.backward()
+                if self._zeros.grad is not None:
+                    temp_importance_scores += self._zeros.grad.detach()[:, 0]
                 self.optimizer.zero_grad()
-                self._zeros.grad.zero_()
+                if self._zeros.grad is not None:
+                    self._zeros.grad.zero_()
             # prune_gaussianmask = (temp_importance_scores > 0.1) & (~self._stable_mask) & (temp_importance_scores < 0.8)    
             # prune_gaussianmask = (temp_importance_scores > 0.05) & (~self._stable_mask) & (temp_importance_scores < 0.8)
             # Ablation TTD 2024/12/04

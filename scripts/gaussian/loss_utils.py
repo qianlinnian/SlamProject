@@ -116,17 +116,25 @@ def get_loss(cfg, pred_dict, gt_dict):
     normal_timeidx_weight = 1.0
     accum_timeidx_weight  = 1.0
     
+    zero_loss = pred_dict['rgb'].sum() * 0.0
+    if not torch.any(valid_mask):
+        return zero_loss
+
     if not cfg['use_sky']:
         Ll1 = l1_loss(pred_dict['rgb'], gt_dict['rgb'], valid_mask)
         rgb_loss = 0.8 * Ll1 + ssim_timeidx_weight * (1.0 - ssim_loss(pred_dict['rgb'], gt_dict['rgb'], valid_mask))
     else:
-        Ll1 = l1_loss(pred_dict['rgb'], gt_dict['sky_rgb'], torch.ones_like(valid_mask))
-        rgb_loss = 0.8 * Ll1 + ssim_timeidx_weight * (1.0 - ssim_loss(pred_dict['rgb'], gt_dict['sky_rgb'], torch.ones_like(valid_mask)))
+        sky_train_mask = torch.ones_like(valid_mask)
+        Ll1 = l1_loss(pred_dict['rgb'], gt_dict['sky_rgb'], sky_train_mask)
+        rgb_loss = 0.8 * Ll1 + ssim_timeidx_weight * (1.0 - ssim_loss(pred_dict['rgb'], gt_dict['sky_rgb'], sky_train_mask))
     
     rend_normal = pred_dict['normal']
     surf_normal = pred_dict['surf_normal']
     normal_loss = (1 - (rend_normal * surf_normal).sum(dim=0)[valid_mask]).mean() * normal_timeidx_weight
-    alpha_loss = (pred_dict['accum'][:, sky_mask]).mean() * accum_timeidx_weight
+    if torch.any(sky_mask):
+        alpha_loss = (pred_dict['accum'][:, sky_mask]).mean() * accum_timeidx_weight
+    else:
+        alpha_loss = zero_loss
     
     # depth_loss = l1_loss(pred_dict["depth"], gt_dict['depth'], valid_mask)
     weight     = 1./gt_dict['depth_cov'] # torch.log(1+gt_dict['depth'])

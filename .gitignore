@@ -1,6 +1,17 @@
 __pycache__/
 .vscode/
-build_gtsam/*
-# submodules/*  # Commented out to allow submodules
-ckpts/*
-output/*
+.DS_Store
+
+build_gtsam/
+ckpts/
+output/
+
+.codex/
+.ipynb_checkpoints/
+dataset/
+dataset_zips/
+
+lightglue/*.pt
+lightglue/*.onnx
+
+docs/*.pptx

@@ -1220,7 +1220,7 @@
             
 #             self.depths_cov[kx] = z_cov / self.disps[kx]**4
 #     # -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -import gtsam_compat
-import gtsam_compat
+from frontend import gtsam_compat
 import numpy as np
 import torch
 import lietorch
@@ -1651,120 +1651,105 @@ class DepthVideo:
                 Q, E = None, None
                 
                 """ marginalization """
-                if self.last_t1!=t1 or self.last_t0 != t0:
-                    if self.last_t0 > t0:
-                        t0 = self.last_t0
-                    elif self.last_t0 == t0:
+                if self.last_t1 != t1 or self.last_t0 != t0:
+                    if self.last_t0 >= t0:
                         t0 = self.last_t0
                     else:
                         marg_paras = []
-                        # Construct a temporary factor graph (related to the old states) to obtain the marginalization information
                         graph = gtsam.NonlinearFactorGraph()
-                        marg_idx = torch.logical_and(torch.greater_equal(self.cur_ii,self.last_t0),\
-                                                    torch.less(self.cur_ii,t0))
-                        marg_idx2 = torch.logical_and(torch.less(self.cur_ii,self.last_t1-2),\
-                                                     torch.less(self.cur_jj,self.last_t1-2))
-                        marg_idx = torch.logical_and(marg_idx,marg_idx2)
+                        marg_idx = torch.logical_and(torch.greater_equal(self.cur_ii, self.last_t0),
+                                                     torch.less(self.cur_ii, t0))
+                        marg_idx2 = torch.logical_and(torch.less(self.cur_ii, self.last_t1 - 2),
+                                                      torch.less(self.cur_jj, self.last_t1 - 2))
+                        marg_idx = torch.logical_and(marg_idx, marg_idx2)
 
                         marg_ii = self.cur_ii[marg_idx]
                         marg_jj = self.cur_jj[marg_idx]
-                        marg_t0 = self.last_t0 
+                        marg_t0 = self.last_t0
                         marg_t1 = t0 + 1
+
                         if len(marg_ii) > 0:
-                            marg_t0 = self.last_t0 
-                            marg_t1 = torch.max(marg_jj).item()+1
+                            marg_t1 = int(torch.max(marg_jj).item()) + 1
                             marg_result = gtsam.Values()
-                            for i in range(self.last_t0,marg_t1): # 就存一个优化完的结果？
-                               if i < t0:
+                            for i in range(self.last_t0, marg_t1):
+                                if i < t0:
                                     marg_paras.append(X(i))
                                     if self.save_pkl:
-                                        # save marginalized results
                                         self.tstamp_save[self.count_save] = self.tstamp[i].clone().cpu()
                                         self.disps_save[self.count_save] = self.disps[i].clone().cpu()
                                         self.poses_save[self.count_save] = self.poses[i].clone().cpu()
                                         if self.upsample_flag:
                                             self.disps_up_save[self.count_save] = self.disps_up[i].clone().cpu()
                                             self.depths_cov_up_save[self.count_save] = self.depths_cov_up[i].clone().cpu()
-                                            self.images_up_save[self.count_save] = self.images[i,[2,1,0],...].permute(1,2,0).cpu() / 255.0 # might be "3::8, 3::8"?
-                                            
-                                        self.images_save[self.count_save] = self.images[i,[2,1,0],::8,::8].permute(1,2,0).cpu() / 255.0 # might be "3::8, 3::8"?
+                                            self.images_up_save[self.count_save] = self.images[i,[2,1,0],...].permute(1,2,0).cpu() / 255.0
+                                        self.images_save[self.count_save] = self.images[i,[2,1,0],::8,::8].permute(1,2,0).cpu() / 255.0
                                         self.count_save += 1
-                                    marg_result.insert(X(i), self.cur_result.atPose3(X(i)))
-                            
+                                marg_result.insert(X(i), self.cur_result.atPose3(X(i)))
+
                             marg_target = self.cur_target[marg_idx]
                             marg_weight = self.cur_weight[marg_idx]
                             marg_eta = self.cur_eta[0:marg_t1-marg_t0]
-    
+
                             bacore = droid_backends.BACore()
                             bacore.init(self.poses, self.disps, self.intrinsics[0], torch.zeros_like(self.disps_sens),
                                 marg_target, marg_weight, marg_eta, marg_ii, marg_jj, marg_t0, marg_t1, itrs, lm, ep, motion_only)
-                            H = torch.zeros([(marg_t1-marg_t0)*6,(marg_t1-marg_t0)*6],dtype=torch.float64,device='cpu')
-                            v = torch.zeros([(marg_t1-marg_t0)*6],dtype=torch.float64,device='cpu')
-                            
-                            bacore.hessian(H,v)
-                            
-                            
-                            for i in range(6): H[i,i] += 0.00025  # for stability
+                            H = torch.zeros([(marg_t1-marg_t0)*6, (marg_t1-marg_t0)*6], dtype=torch.float64, device='cpu')
+                            v = torch.zeros([(marg_t1-marg_t0)*6], dtype=torch.float64, device='cpu')
+                            bacore.hessian(H, v)
+                            for i in range(6):
+                                H[i, i] += 0.00025
 
-                            # Hg,vg = BA2GTSAM(H,v,self.Tbc)
-                    Hgg = gtsam_compat.BA2GTSAM(H, v, self.Tbc)
-                    Hg = Hgg[0:(t1-t0)*6, 0:(t1-t0)*6]
-                    vg = Hgg[0:(t1-t0)*6]
-                    vis_factor = CustomHessianFactor(marg_result, Hg, vg)
-                            
-                    graph.push_back(vis_factor)
+                            Hgg, vgg = BA2GTSAM(H, v, self.Tbc)
+                            Hg = Hgg[0:(marg_t1-marg_t0)*6, 0:(marg_t1-marg_t0)*6]
+                            vg = vgg[0:(marg_t1-marg_t0)*6]
+                            graph.push_back(CustomHessianFactor(marg_result, Hg, vg))
 
-                    for i in range(self.last_t0,marg_t1):
-                        if i < t0:
-                             if X(i) not in marg_paras:
-                                 marg_paras.append(X(i))
-                             if not self.ignore_imu:
-                                 marg_paras.append(V(i))
-                                 marg_paras.append(B(i))
-                                 graph.push_back(gtsam.gtsam.CombinedImuFactor(\
-                                             X(i),V(i),X(i+1),V(i+1),B(i),B(i+1),\
-                                             self.state.preintegrations[i]))
-                             if self.gnss_init_t1 > 0:
-                                 if self.state.gnss_valid[i]:
-                                     p = np.matmul(trans.Cen(self.ten0).T, self.state.gnss_position[i] - self.ten0)
-                                     n0pbg = self.state.wTbs[i].rotation().rotate(self.tbg)
-                                     p = p - n0pbg
-                                     gnss_factor = gtsam.GPSFactor(X(i), p,\
-                                                   gtsam.noiseModel.Robust.Create(\
-                                                   gtsam.noiseModel.mEstimator.Cauchy(0.08),\
-                                     gtsam.noiseModel.Diagonal.Sigmas(np.array([1.0,1.0,5.0]))))
-                                     graph.push_back(gnss_factor)
-                             if self.state.odo_valid[i]:
-                                 vb = self.state.odo_vel[i]
-                                 odo_factor = gtsam.VelFactor(X(i),V(i),vb,gtsam.noiseModel.Diagonal.Sigmas(np.array([2.0,2.0,2.0])))
-                                 graph.push_back(odo_factor)
-                        
-                    keys = self.prior_factor_map.keys()
-                    for i in sorted(keys):
-                        if i < t0:
+                        for i in range(self.last_t0, marg_t1):
+                            if i < t0:
+                                if X(i) not in marg_paras:
+                                    marg_paras.append(X(i))
+                                if not self.ignore_imu:
+                                    marg_paras.append(V(i))
+                                    marg_paras.append(B(i))
+                                    graph.push_back(gtsam.gtsam.CombinedImuFactor(
+                                        X(i), V(i), X(i+1), V(i+1), B(i), B(i+1),
+                                        self.state.preintegrations[i]))
+                                if self.gnss_init_t1 > 0 and self.state.gnss_valid[i]:
+                                    p_gnss = np.matmul(trans.Cen(self.ten0).T, self.state.gnss_position[i] - self.ten0)
+                                    p_gnss = p_gnss - self.state.wTbs[i].rotation().rotate(self.tbg)
+                                    graph.push_back(gtsam.GPSFactor(X(i), p_gnss,
+                                        gtsam.noiseModel.Robust.Create(
+                                            gtsam.noiseModel.mEstimator.Cauchy(0.08),
+                                            gtsam.noiseModel.Diagonal.Sigmas(np.array([1.0, 1.0, 5.0])))))
+                                if self.state.odo_valid[i]:
+                                    graph.push_back(gtsam.VelFactor(X(i), V(i), self.state.odo_vel[i],
+                                        gtsam.noiseModel.Diagonal.Sigmas(np.array([2.0, 2.0, 2.0]))))
+
+                        for i in sorted(list(self.prior_factor_map.keys())):
+                            if i < t0:
                                 for iii in range(len(self.prior_factor_map[i])):
                                     graph.push_back(self.prior_factor_map[i][iii])
                                 del self.prior_factor_map[i]
-                        if not self.marg_factor == None:
+                        if self.marg_factor is not None:
                             graph.push_back(self.marg_factor)
 
-                    self.marg_factor = gtsam.marginalizeOut(graph, self.cur_result, marg_paras)
+                        if len(marg_paras) > 0:
+                            self.marg_factor = gtsam.marginalizeOut(graph, self.cur_result, marg_paras)
 
-                        # covariance inflation of IMU biases
-                    if self.reinit == True:
-                            all_keys = self.marg_factor.keys()
-                            for i in range(len(all_keys)):
-                                if all_keys[i] == B(t0):
-                                    all_keys[i] = B(0)
-                            graph = gtsam.NonlinearFactorGraph()
-                            graph.push_back(self.marg_factor.rekey(all_keys))
-                            b_l = gtsam.BetweenFactorConstantBias(B(0),B(t0),gtsam.imuBias.ConstantBias(np.array([.0,.0,.0]),np.array([.0,.0,.0])),\
-                                                                  gtsam.noiseModel.Diagonal.Sigmas(self.init_bias_sigma))
-                            graph.push_back(b_l)
-                            result_tmp = self.marg_factor.linearizationPoint()
-                            result_tmp.insert(B(0),result_tmp.atConstantBias(B(t0)))
-                    self.marg_factor = gtsam.marginalizeOut(graph, self.cur_result, marg_paras)
-                    self.reinit = False
+                            if self.reinit:
+                                all_keys = self.marg_factor.keys()
+                                for i in range(len(all_keys)):
+                                    if all_keys[i] == B(t0):
+                                        all_keys[i] = B(0)
+                                graph = gtsam.NonlinearFactorGraph()
+                                graph.push_back(self.marg_factor.rekey(all_keys))
+                                graph.push_back(gtsam.BetweenFactorConstantBias(B(0), B(t0),
+                                    gtsam.imuBias.ConstantBias(np.array([.0,.0,.0]), np.array([.0,.0,.0])),
+                                    gtsam.noiseModel.Diagonal.Sigmas(self.init_bias_sigma)))
+                                result_tmp = self.marg_factor.linearizationPoint()
+                                result_tmp.insert(B(0), result_tmp.atConstantBias(B(t0)))
+                                self.marg_factor = gtsam.marginalizeOut(graph, result_tmp, [B(0)])
+                                self.reinit = False
 
                     self.last_t0 = t0
                     self.last_t1 = t1
@@ -1840,16 +1825,16 @@ class DepthVideo:
                     
                     bacore.hessian(H,v) # camera frame
                     
-                    Hgg = gtsam_compat.BA2GTSAM(H, v, self.Tbc)
+                    Hgg, vgg = BA2GTSAM(H, v, self.Tbc)
                     Hg = Hgg[0:(t1-t0)*6, 0:(t1-t0)*6]
-                    vg = Hgg[0:(t1-t0)*6]
+                    vg = vgg[0:(t1-t0)*6]
 
                     initial = gtsam.Values()
                     for i in range(t0,t1):
                         initial.insert(X(i), self.state.wTbs[i]) # the indice need to be handled
                     initial_vis = copy.deepcopy(initial)
-                    vis_factor = CustomHessianFactor(marg_result, Hg, vg)
-                    graph.push_back(vis_factor)
+                    vis_factor = CustomHessianFactor(initial_vis, Hg, vg)
+                    self.cur_graph.push_back(vis_factor)
                     
                     if not self.ignore_imu:
                         for i in range(t0,t1):
@@ -2063,18 +2048,18 @@ class DepthVideo:
                                 
                             for i in range(6): H[i,i] += 0.00025  # for stability
 
-                                # Hg,vg = BA2GTSAM(H,v,self.Tbc)
-                                Hgg = gtsam_compat.BA2GTSAM(H, v, self.Tbc)
-                                Hg = Hgg[0:(t1-t0)*6, 0:(t1-t0)*6]
-                                vg = Hgg[0:(t1-t0)*6]
-                                vis_factor = CustomHessianFactor(marg_result, Hg, vg)
-                                        
-                                graph.push_back(vis_factor)
+                            # Hg,vg = BA2GTSAM(H,v,self.Tbc)
+                            Hgg, vgg = BA2GTSAM(H, v, self.Tbc)
+                            Hg = Hgg[0:(marg_t1-marg_t0)*6, 0:(marg_t1-marg_t0)*6]
+                            vg = vgg[0:(marg_t1-marg_t0)*6]
+                            vis_factor = CustomHessianFactor(marg_result, Hg, vg)
 
-                                    for i in range(self.last_t0,marg_t1):
-                                        if i < t0:
-                                                if X(i) not in marg_paras:
-                                                    marg_paras.append(X(i))
+                            graph.push_back(vis_factor)
+
+                            for i in range(self.last_t0,marg_t1):
+                                if i < t0:
+                                    if X(i) not in marg_paras:
+                                        marg_paras.append(X(i))
                                 
                                 keys = self.prior_factor_map.keys()
                                 for i in sorted(keys):
@@ -2130,8 +2115,8 @@ class DepthVideo:
                 params = gtsam.LevenbergMarquardtParams()#;params.setMaxIterations(1)
                 
                 # prior factor
-                    keys = self.prior_factor_map.keys()
-                    for i in sorted(keys):
+                keys = self.prior_factor_map.keys()
+                for i in sorted(keys):
                     if i >= t0 and i < t1:
                         for iii in range(len(self.prior_factor_map[i])):
                             self.cur_graph.push_back(self.prior_factor_map[i][iii])
@@ -2148,16 +2133,16 @@ class DepthVideo:
                     
                     bacore.hessian(H,v) # camera frame
                     
-                    Hgg = gtsam_compat.BA2GTSAM(H, v, self.Tbc)
+                    Hgg, vgg = BA2GTSAM(H, v, self.Tbc)
                     Hg = Hgg[0:(t1-t0)*6, 0:(t1-t0)*6]
-                    vg = Hgg[0:(t1-t0)*6]
+                    vg = vgg[0:(t1-t0)*6]
 
                     initial = gtsam.Values()
                     for i in range(t0,t1):
                         initial.insert(X(i), self.state.wTbs[i]) # the indice need to be handled
                     initial_vis = copy.deepcopy(initial)
-                    vis_factor = CustomHessianFactor(marg_result, Hg, vg)
-                    graph.push_back(vis_factor)
+                    vis_factor = CustomHessianFactor(initial_vis, Hg, vg)
+                    self.cur_graph.push_back(vis_factor)
                     
                     
                     optimizer = gtsam.LevenbergMarquardtOptimizer(self.cur_graph, initial, params)
@@ -2252,7 +2237,7 @@ class DepthVideo:
                 # =  =  =  =  =  =  =  =  =  =  =  =  =  =  =  =  =  =  =  =  =  =  =  =  =  =
                 
                 self.last_t0 = min(ii.min().item(), jj.min().item())
-                    self.last_t1 = t1
+                self.last_t1 = t1
                 
                 self.disps.clamp_(0.001)
             
@@ -2365,7 +2350,7 @@ class DepthVideo:
                 # =  =  =  =  =  =  =  =  =  =  =  =  =  =  =  =  =  =  =  =  =  =  =  =  =  =
                 
                 self.last_t0 = min(ii.min().item(), jj.min().item())
-                    self.last_t1 = t1
+                self.last_t1 = t1
                 
                 compute_covariances = True
                 if compute_covariances:

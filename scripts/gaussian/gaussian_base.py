@@ -377,9 +377,70 @@ class GaussianBase:
             
             self.wandber.log_time('backward_time')
             pred_dict['time_idx'] = self.time_idx
+            radii = pred_dict['radii']
+            radii_positive = int((radii > 0).sum().item()) if radii.numel() else 0
+            debug_enabled = self.cfg.get('mapping_args', {}).get('debug_backward_stats', False)
+            if radii_positive == 0:
+                if debug_enabled and getattr(self, '_invisible_debug_prints', 0) < 10:
+                    print(
+                        f"[gaussian_debug] skip invisible view: time_idx={int(self.time_idx)} "
+                        f"iter={int(curr_iter)} curr_id={int(curr_id)} "
+                        f"gaussians={int(self._xyz.shape[0])} radii_shape={tuple(radii.shape)}",
+                        flush=True,
+                    )
+                    self._invisible_debug_prints = getattr(self, '_invisible_debug_prints', 0) + 1
+                self.optimizer.zero_grad()
+                self.wandber.log_time('backward_time')
+                continue
+
             total_loss = get_loss(self.cfg, pred_dict, gt_dict)
+            if not torch.isfinite(total_loss):
+                if debug_enabled and getattr(self, '_nonfinite_loss_debug_prints', 0) < 10:
+                    print(
+                        f"[gaussian_debug] skip nonfinite loss: time_idx={int(self.time_idx)} "
+                        f"iter={int(curr_iter)} curr_id={int(curr_id)} "
+                        f"gaussians={int(self._xyz.shape[0])} radii_positive={radii_positive} "
+                        f"loss={float(total_loss.detach().item())}",
+                        flush=True,
+                    )
+                    self._nonfinite_loss_debug_prints = getattr(self, '_nonfinite_loss_debug_prints', 0) + 1
+                self.optimizer.zero_grad()
+                self.wandber.log_time('backward_time')
+                continue
+
+            debug_stat = None
+            if debug_enabled:
+                with torch.no_grad():
+                    scales = self.get_property('_scaling')
+                    opacity = self.get_property('_opacity')
+                    debug_stat = {
+                        'time_idx': int(self.time_idx),
+                        'curr_iter': int(curr_iter),
+                        'curr_id': int(curr_id),
+                        'batch_frames': int(poses.shape[0]),
+                        'gaussians': int(self._xyz.shape[0]),
+                        'radii_shape': tuple(radii.shape),
+                        'radii_positive': radii_positive,
+                        'radii_max': float(radii.max().item()) if radii.numel() else 0.0,
+                        'xyz_finite': bool(torch.isfinite(self._xyz).all().item()),
+                        'scale_finite': bool(torch.isfinite(scales).all().item()),
+                        'scale_min': float(scales.min().item()) if scales.numel() else 0.0,
+                        'scale_max': float(scales.max().item()) if scales.numel() else 0.0,
+                        'opacity_finite': bool(torch.isfinite(opacity).all().item()),
+                        'opacity_min': float(opacity.min().item()) if opacity.numel() else 0.0,
+                        'opacity_max': float(opacity.max().item()) if opacity.numel() else 0.0,
+                        'w2c_finite': bool(torch.isfinite(w2c).all().item()),
+                        'loss': float(total_loss.detach().item()),
+                        'image_hw': (int(images.shape[1]), int(images.shape[2])),
+                        'intrinsic': {k: float(v) if torch.is_tensor(v) else v for k, v in intrinsic_dict.items()},
+                    }
             
-            total_loss.backward()
+            try:
+                total_loss.backward()
+            except RuntimeError:
+                if debug_stat is not None:
+                    print(f"[gaussian_debug] backward failed: {debug_stat}", flush=True)
+                raise
             self.wandber.log_time('backward_time')
 
             # (1) Record Importance Score & Error Score. (2) Multiply weights by accumulate scores to avoid forgetting problem.

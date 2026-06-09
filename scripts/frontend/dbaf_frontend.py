@@ -41,6 +41,7 @@ class DBAFusionFrontend:
         self.all_imu = None
         self.cur_imu_ii = 0
         self.is_init = False
+        self.vi_rejected = False
         self.all_gnss = []
         self.all_odo = []
         self.all_gt = None
@@ -57,6 +58,10 @@ class DBAFusionFrontend:
         self.visual_only_init = cfg['frontend']['visual_only']
         self.translation_threshold = 0.0
         self.active_window = cfg['frontend']['active_window']
+        self.vi_min_scale = float(cfg['frontend'].get('vi_min_scale', 0.0))
+        self.vi_max_scale = float(cfg['frontend'].get('vi_max_scale', float('inf')))
+        self.vi_max_gravity_error = float(cfg['frontend'].get('vi_max_gravity_error', float('inf')))
+        self.vi_fallback_no_retry = bool(cfg['frontend'].get('vi_fallback_no_retry', False))
         # Dangerous Option.
         self.high_freq_output = False
         self.zupt = False
@@ -130,7 +135,7 @@ class DBAFusionFrontend:
 
         self.video.last_t0 -= roll
         self.video.last_t1 -= roll
-        if self.cfg['mode'] == 'vio':
+        if self.cfg['mode'] == 'vio' and self.video.cur_ii is not None and self.video.cur_jj is not None:
             self.video.cur_ii  -= roll
             self.video.cur_jj  -= roll
         
@@ -164,6 +169,16 @@ class DBAFusionFrontend:
         self.video.state.gnss_position        = self.video.state.gnss_position        [roll:]
         self.video.state.odo_valid            = self.video.state.odo_valid            [roll:]
         self.video.state.odo_vel              = self.video.state.odo_vel              [roll:]
+
+    def _use_visual_fallback(self):
+        self.video.visual_only_init = True
+        self.video.imu_enabled = False
+        self.visual_only = True
+        self.visual_only_init = True
+        self.iters1 = 4
+        self.iters2 = 2
+        if self.vi_fallback_no_retry:
+            self.vi_rejected = True
 
     def __update(self):
         """ add edges, perform update """
@@ -381,7 +396,8 @@ class DBAFusionFrontend:
             self.new_frame_added = True
             
         ## try initializing VI/GNSS
-        if self.t1 > self.vi_warmup and self.video.vi_init_t1 < 0:
+        if (self.t1 > self.vi_warmup and self.video.vi_init_t1 < 0
+                and not (self.vi_fallback_no_retry and self.vi_rejected)):
             self.init_VI()
             if not self.visual_only:
                 for i in range(len(self.all_stamp)): # skip to next image
@@ -478,7 +494,7 @@ class DBAFusionFrontend:
             self.graph.update(None, None, use_inactive=True)
             self.graph.update(None, None, use_inactive=True)
             self.video.set_prior(self.video.last_t0,self.t1)
-            self.video.visual_only_init = True
+            self._use_visual_fallback()
             for itr in range(1):
                 self.graph.update(None, None, use_inactive=True)
             # print("IMU excitation not enough!")
@@ -504,11 +520,20 @@ class DBAFusionFrontend:
                 plt.pause(0.1)
 
             if not self.visual_only:
-                self.VisualIMUAlignment(self.t1 - 8 ,self.t1, ignore_lever= True)
+                if not self.VisualIMUAlignment(self.t1 - 8 ,self.t1, ignore_lever= True):
+                    self._use_visual_fallback()
+                    self.video.set_prior(self.video.last_t0,self.t1)
+                    return
                 self.graph.update(None, None, use_inactive=True)
-                self.VisualIMUAlignment(self.t1 - 8 ,self.t1, ignore_lever= False)
+                if not self.VisualIMUAlignment(self.t1 - 8 ,self.t1, ignore_lever= False):
+                    self._use_visual_fallback()
+                    self.video.set_prior(self.video.last_t0,self.t1)
+                    return
                 self.graph.update(None, None, use_inactive=True)
-                self.VisualIMUAlignment(self.t1 - 8 ,self.t1, ignore_lever= False)
+                if not self.VisualIMUAlignment(self.t1 - 8 ,self.t1, ignore_lever= False):
+                    self._use_visual_fallback()
+                    self.video.set_prior(self.video.last_t0,self.t1)
+                    return
                 self.video.imu_enabled = True
             else:
                 self.VisualIMUAlignment(self.t1 - 8 ,self.t1, ignore_lever= True)
@@ -799,7 +824,16 @@ class DBAFusionFrontend:
             s = 1.0
             
         # print('g,s:',g,s)
-        if math.fabs(np.linalg.norm(g) - 9.81) < 0.5 and s > 0:
+        g_error = math.fabs(np.linalg.norm(g) - 9.81)
+        finite_alignment = np.isfinite(s) and np.isfinite(g).all() and np.isfinite(g0).all()
+        scale_ok = s > 0 and self.vi_min_scale <= s <= self.vi_max_scale
+        gravity_ok = g_error <= self.vi_max_gravity_error
+        if not (finite_alignment and scale_ok and gravity_ok):
+            print(f"[IMU] V-I initialization rejected: scale={s:.6g}, gravity_error={g_error:.6g}, "
+                  f"allowed_scale=[{self.vi_min_scale:.6g}, {self.vi_max_scale:.6g}], "
+                  f"allowed_gravity_error={self.vi_max_gravity_error:.6g}; falling back to visual-only")
+            return False
+        if g_error < 0.5 and s > 0:
             print('V-I successfully initialized!')
         
         # visualInitialAlign
@@ -846,6 +880,7 @@ class DBAFusionFrontend:
             t = torch.tensor(TTT[:3,3])
             self.video.poses[i] = torch.cat([t,q])
             self.video.disps[i] /= s
+        return True
 
     def __initialize(self):
         """ initialize the SLAM system """

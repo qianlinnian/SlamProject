@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import numpy as np
 import torch.nn.functional as F
 from scipy.spatial import KDTree
 import math
@@ -10,12 +11,32 @@ from gaussian.general_utils import inverse_sigmoid
 
 
 def distCUDA2(points):
+    num_points = points.shape[0]
+    if num_points == 0:
+        return points.new_empty((0,))
+    if num_points == 1:
+        return points.new_full((1,), 1e-4)
+
     points_np = points.detach().cpu().float().numpy()
-    dists, inds = KDTree(points_np).query(points_np, k=4)
-    meanDists = (dists[:, 1:] ** 2).mean(1)
+    k = min(4, num_points)
+    dists, inds = KDTree(points_np).query(points_np, k=k)
+    if k == 2:
+        neighbor_dists = dists[:, 1:2]
+    else:
+        neighbor_dists = dists[:, 1:]
+    meanDists = (neighbor_dists ** 2).mean(1)
+    meanDists = np.nan_to_num(meanDists, nan=1e-4, posinf=1e-4, neginf=1e-4)
     return torch.tensor(meanDists, dtype=points.dtype, device=points.device)
 
 # TODO: Ablation on random choose pixels.
+def _empty_pointcloud_like(gt_rgb: torch.Tensor, gt_depth: torch.Tensor):
+    return (
+        gt_depth.new_empty((0, 3)),
+        gt_rgb.new_empty((0, 3)),
+        torch.empty((0, 4), device=gt_depth.device, dtype=torch.float32),
+    )
+
+
 def get_pointcloud_v1(tfer, c2w, gt_rgb: torch.Tensor, gt_depth: torch.Tensor, pred_accum: torch.Tensor, N_points: int):
     '''
         gt_rgb: (3, H, W)
@@ -30,14 +51,23 @@ def get_pointcloud_v1(tfer, c2w, gt_rgb: torch.Tensor, gt_depth: torch.Tensor, p
     H, W = gt_rgb.shape[-2], gt_rgb.shape[-1]
     rgb = gt_rgb.unsqueeze(0)
     all_valid_num = (gt_depth>0).sum()
+    if all_valid_num.item() == 0:
+        return _empty_pointcloud_like(gt_rgb, gt_depth)
     
     gt_depth_cp = gt_depth.squeeze(0) + 0.0
     gt_depth_cp[pred_accum.squeeze(0)>tfer.cfg['adc_args']['accum_thresh']] = 0
     accum_valid_num = (gt_depth_cp>0).sum()
-    N_samples = int(accum_valid_num/all_valid_num * N_points)
+    if accum_valid_num.item() == 0:
+        return _empty_pointcloud_like(gt_rgb, gt_depth)
+    sample_ratio = (accum_valid_num.float() / all_valid_num.float()).item()
+    if not math.isfinite(sample_ratio):
+        return _empty_pointcloud_like(gt_rgb, gt_depth)
+    N_samples = int(sample_ratio * N_points)
 
     pc_all = tfer.transform(gt_depth.squeeze(0), 'depth', 'world', pose=c2w) # (N, 3)
     N_samples = min(N_samples, pc_all.shape[0])
+    if pc_all.shape[0] == 0 or N_samples <= 0:
+        return _empty_pointcloud_like(gt_rgb, gt_depth)
     
     sampled_indices = torch.randperm(pc_all.shape[0], device=pc_all.device)[:N_samples]
     xyz = pc_all[sampled_indices] # (n, 3)
@@ -46,6 +76,8 @@ def get_pointcloud_v1(tfer, c2w, gt_rgb: torch.Tensor, gt_depth: torch.Tensor, p
     rgb = gt_rgb.permute(1, 2, 0)[gt_depth.squeeze(0)>0][sampled_indices] # (N, 3)
     
     q = torch.randn((N_samples, 4), device=gt_depth.device, dtype=torch.float32) # (n, 4)
+    finite_mask = torch.isfinite(xyz).all(dim=1) & torch.isfinite(rgb).all(dim=1)
+    xyz, rgb, q = xyz[finite_mask], rgb[finite_mask], q[finite_mask]
 
     return xyz, rgb, q # (n, 3), (n, 3), (n, 4)
 

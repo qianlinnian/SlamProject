@@ -90,7 +90,8 @@ def apply_patches():
         raise ImportError("gtsam module not available; cannot apply patches")
     
     _install_depth_video_functions()
-    gtsam.CombinedImuFactor.evaluateErrorCustom = _evaluate_error_custom
+    if not hasattr(gtsam.CombinedImuFactor, "evaluateErrorCustom"):
+        gtsam.CombinedImuFactor.evaluateErrorCustom = _evaluate_error_custom
 
 
 # Apply patches automatically on import

@@ -5,7 +5,7 @@ from lietorch import SE3
 import torch.nn as nn
 from diff_surfel_rasterization import GaussianRasterizationSettings, GaussianRasterizer
 from gaussian.cameras import get_camera
-from gaussian.vis_utils import get_poses_gaussians, get_bev_c2w
+from gaussian.vis_utils import get_poses_gaussians, get_bev_c2w, apply_mapper_pose_scale
 import numpy as np
 
 def tq_to_matrix(tqs: torch.Tensor):
@@ -42,7 +42,7 @@ class StorageManager: # Works in the same thread as the mapper.
         delete_gaussian_mask = torch.isin(self._globalkf_id, convey_kf_id)
         convey_gaussian_mask = torch.isin(mapper._globalkf_id, convey_kf_id.to(mapper.device))
         
-        if convey_kf_id.sum() > 0:
+        if convey_kf_id.numel() > 0:
             # Update storage manager. 
             self._xyz           = torch.concat((self._xyz[~delete_gaussian_mask], mapper._xyz[convey_gaussian_mask].cpu()), dim=0)
             self._rgb           = torch.concat((self._rgb[~delete_gaussian_mask], mapper._rgb[convey_gaussian_mask].cpu()), dim=0)
@@ -92,13 +92,27 @@ class StorageManager: # Works in the same thread as the mapper.
     
     
     def run(self, tracker, mapper, viz_out):
-        # STEP 1 Update globalkf_c2ws.
-        globalkf_c2ws = torch.linalg.inv(tq_to_matrix(tracker.video.poses_save[:viz_out['global_kf_id'][-1]])) # (N, 4, 4)
-        cur_c2w       = viz_out['poses'][-1] # (4, 4)
-        distance_to_cur_c2w = torch.norm(torch.matmul(torch.linalg.inv(cur_c2w).unsqueeze(0).cpu(), globalkf_c2ws.cpu())[:, :3, -1], dim=-1) # (N, ), cpu
+        # STEP 1 Update globalkf_c2ws in the same coordinate system as mapper poses.
+        if viz_out is None or viz_out['global_kf_id'].numel() == 0:
+            return
 
-        new_added_size = viz_out['global_kf_id'][-1] - self.c2ws_storage_place.shape[0]
-        self.c2ws_storage_place = torch.concat((self.c2ws_storage_place, torch.ones(new_added_size, dtype=torch.float32)), dim=0)
+        saved_count = int(tracker.video.count_save + getattr(tracker.video, 'count_save_bias', 0))
+        last_global_kf_id = int(viz_out['global_kf_id'].max().item())
+        target_size = max(self.c2ws_storage_place.shape[0], last_global_kf_id + 1)
+        target_size = min(target_size, saved_count)
+        if target_size <= 0:
+            return
+
+        if self.c2ws_storage_place.shape[0] < target_size:
+            new_added_size = target_size - self.c2ws_storage_place.shape[0]
+            self.c2ws_storage_place = torch.concat((self.c2ws_storage_place, torch.ones(new_added_size, dtype=torch.float32)), dim=0)
+        elif self.c2ws_storage_place.shape[0] > target_size:
+            self.c2ws_storage_place = self.c2ws_storage_place[:target_size]
+
+        globalkf_c2ws = torch.linalg.inv(tq_to_matrix(tracker.video.poses_save[:target_size])) # (N, 4, 4)
+        globalkf_c2ws = apply_mapper_pose_scale(tracker, globalkf_c2ws).cpu()
+        cur_c2w       = viz_out['poses'][-1].detach().cpu() # Already mapper-scaled by middleware.
+        distance_to_cur_c2w = torch.norm(torch.matmul(torch.linalg.inv(cur_c2w).unsqueeze(0), globalkf_c2ws)[:, :3, -1], dim=-1) # (N, ), cpu
 
         # STEP 2 
         self.cpu2gpu(mapper, distance_to_cur_c2w)
@@ -126,6 +140,7 @@ class StorageManager: # Works in the same thread as the mapper.
             valid_mask = poses_f_idx>0
             poses = poses[valid_mask]
             poses_f_idx = poses_f_idx[valid_mask]
+            poses = apply_mapper_pose_scale(visual_frontend, poses)
             
             if poses.shape[0] == 0:
                 return
@@ -134,6 +149,8 @@ class StorageManager: # Works in the same thread as the mapper.
         # STEP 1 Separate all history gaussians.
         FRAMES_PER_BATCH = 30 # 100
         concat_global_kf_id = torch.concat((mapper._globalkf_id.cpu(), self._globalkf_id))
+        if concat_global_kf_id.numel() == 0:
+            return
         start_globalkf_id, end_globalkf_id = 0, concat_global_kf_id.max()
 
         num_batch = (end_globalkf_id - start_globalkf_id)//FRAMES_PER_BATCH + 1
@@ -172,6 +189,8 @@ class StorageManager: # Works in the same thread as the mapper.
                             pixel_mask = pixel_mask)      
                 
                 means3D        = torch.concat((mapper.get_property('_xyz')[gpu_gaussian_mask], self._xyz[cpu_gaussian_mask].to(mapper.device))) # (N, 3)
+                if means3D.shape[0] == 0:
+                    continue
                 means2D        = None
                 opacity        = torch.concat(( mapper.get_property('_opacity')[gpu_gaussian_mask], mapper.activate_dict['_opacity'](self._opacity[cpu_gaussian_mask].to(mapper.device)))) # (N, 1)
                 scales         = torch.concat(( mapper.get_property('_scaling')[gpu_gaussian_mask], mapper.activate_dict['_scaling'](self._scaling[cpu_gaussian_mask].to(mapper.device)) )) # (N, 3)
@@ -223,6 +242,9 @@ class StorageManager: # Works in the same thread as the mapper.
                 bev_rendered_list.append(rendered_image)
         
                 
+        if len(bev_rendered_list) == 0:
+            return
+
         # STEP 3 MaxConcat all rendered images.
         final_image = torch.ones_like(bev_rendered_list[0]) * 0.0
         final_accum = torch.zeros_like(bev_accum_list[0])
@@ -257,6 +279,7 @@ class StorageManager: # Works in the same thread as the mapper.
             valid_mask = poses_f_idx>0
             poses = poses[valid_mask]
             poses_f_idx = poses_f_idx[valid_mask]
+            poses = apply_mapper_pose_scale(visual_frontend, poses)
             
             if poses.shape[0] == 0:
                 return
@@ -270,6 +293,8 @@ class StorageManager: # Works in the same thread as the mapper.
         # STEP 1 Separate all history gaussians.
         FRAMES_PER_BATCH = 50 # 100
         concat_global_kf_id = torch.concat((mapper._globalkf_id.cpu(), self._globalkf_id))
+        if concat_global_kf_id.numel() == 0:
+            return
         start_globalkf_id, end_globalkf_id = 0, concat_global_kf_id.max()
 
         num_batch = (end_globalkf_id - start_globalkf_id)//FRAMES_PER_BATCH + 1
@@ -314,6 +339,8 @@ class StorageManager: # Works in the same thread as the mapper.
                             pixel_mask = pixel_mask)      
                 
                 means3D        = torch.concat((mapper.get_property('_xyz')[gpu_gaussian_mask], self._xyz[cpu_gaussian_mask].to(mapper.device))) # (N, 3)
+                if means3D.shape[0] == 0:
+                    continue
                 means2D        = None
                 opacity        = torch.concat(( mapper.get_property('_opacity')[gpu_gaussian_mask], mapper.activate_dict['_opacity'](self._opacity[cpu_gaussian_mask]).to(mapper.device))) # (N, 1)
                 scales         = torch.concat(( mapper.get_property('_scaling')[gpu_gaussian_mask], mapper.activate_dict['_scaling'](self._scaling[cpu_gaussian_mask].to(mapper.device)) )) # (N, 3)
@@ -358,6 +385,9 @@ class StorageManager: # Works in the same thread as the mapper.
                 bev_rendered_list.append(rendered_image)
         
              
+        if len(bev_rendered_list) == 0:
+            return
+
         # STEP 3 MaxConcat all rendered images.
         final_image = torch.ones_like(bev_rendered_list[0]) * 0.0
         final_accum = torch.zeros_like(bev_accum_list[0])

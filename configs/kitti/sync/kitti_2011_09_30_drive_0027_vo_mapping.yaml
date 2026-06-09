@@ -3,7 +3,7 @@ use_sky: False
 use_dynamic: False
 use_pose_refine: False
 
-mode: 'vio' # 'vo' or 'vio'
+mode: 'vo' # 'vo' or 'vio'
 tracking_only: False
 
 
@@ -23,7 +23,7 @@ middleware:
   max_depth: 30
 
 output:
-  save_dir: /root/autodl-tmp/VINGS-Mono/output/
+  save_dir: /tmp/vings_output/
 
 # 707.0912 707.0912 601.8873 183.1104
 intrinsic:
@@ -50,10 +50,6 @@ frontend:
   frontend_thresh: 16.0 
   frontend_radius: 2
   active_window: 12
-  vi_min_scale: 1.0
-  vi_max_scale: 200.0
-  vi_max_gravity_error: 1.0
-  vi_fallback_no_retry: True
   # CovisibleGraph
   max_factors: 48
   far_threshold: 0.02
@@ -96,9 +92,6 @@ vis:
     cu: 740 # cy
     cv: 959.5 # cx
   pose_scale: 1.0
-  map_w2c_auto: True
-  map_w2c_auto_margin: 1.25
-  map_w2c_auto_min_depth: 10.0
 
 
 use_metric: False

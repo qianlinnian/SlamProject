@@ -10,7 +10,7 @@ args = parser.parse_args()
 config_path = args.config
 from gaussian.general_utils import load_config, get_name
 config = load_config(config_path)
-config['frontend']['show_plot'] = True
+config['frontend']['show_plot'] = config['frontend'].get('show_plot', False)
 
 import shutil
 import importlib
@@ -34,8 +34,16 @@ class Runner:
             
     def run(self):
         # Load imu data.
-        self.tracker.frontend.all_imu   = self.dataset.preload_imu()
         self.tracker.frontend.all_stamp = self.dataset.preload_camtimestamp()
+        if self.cfg.get('mode') == 'vo':
+            stamps = self.tracker.frontend.all_stamp.reshape(-1)
+            dummy_imu = np.zeros((len(stamps) + 16, 7), dtype=np.float64)
+            dt = float(np.median(np.diff(stamps))) if len(stamps) > 1 else 0.033333
+            dummy_imu[:, 0] = np.arange(len(dummy_imu)) * dt
+            dummy_imu[:, 6] = 9.81
+            self.tracker.frontend.all_imu = dummy_imu
+        else:
+            self.tracker.frontend.all_imu = self.dataset.preload_imu()
         print(self.tracker.frontend.all_imu[:5,:])
         # Run Tracking.
         for idx in range(0, min(len(self.dataset), 30000)):

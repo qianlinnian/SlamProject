@@ -319,6 +319,23 @@ def calc_psnr(pred_img, gt_img, valid_mask=None):
     return 20 * torch.log10(1.0 / torch.sqrt(mse)).mean()
 
 
+def apply_mapper_pose_scale(visual_frontend, poses):
+    if visual_frontend is None or not hasattr(visual_frontend, 'cfg'):
+        return poses
+    mapping_args = visual_frontend.cfg.get('mapping_args', {})
+    pose_translation_scale = float(mapping_args.get('pose_translation_scale', 1.0))
+    if pose_translation_scale == 1.0 or poses.shape[0] == 0:
+        return poses
+
+    pose_origin = getattr(visual_frontend, 'mapper_pose_origin', None)
+    if pose_origin is None:
+        pose_origin = poses[0, :3, 3].detach().clone()
+    pose_origin = pose_origin.to(poses.device, dtype=poses.dtype)
+    scaled_poses = poses.clone()
+    scaled_poses[:, :3, 3] = (scaled_poses[:, :3, 3] - pose_origin) * pose_translation_scale
+    return scaled_poses
+
+
 def get_poses_gaussians(poses, pose_scale=0.04, poses_f_idx_rate=None):
     poses_pth = torch.tensor(np.array(check_pcd_with_poses(None, poses, interp=1, scale=pose_scale).points), dtype=torch.float32, device=poses.device) # (N, 3)
     N_points  = poses_pth.shape[0]
@@ -356,7 +373,7 @@ def vis_map(visual_frontend, gaussian_model, return_image=False):
             if poses.shape[0] == 0:
                 return
 
-            poses = poses[::3]
+            poses = apply_mapper_pose_scale(visual_frontend, poses)[::3]
             poses_f_idx = poses_f_idx[::3]
             
             
@@ -373,7 +390,31 @@ def vis_map(visual_frontend, gaussian_model, return_image=False):
     
     
     bev_intrinsic_dict  = gaussian_model.cfg['vis']['bev_intrinsic_dict']
-    bev_w2c             = torch.tensor(gaussian_model.cfg['vis']['bev_w2c'], dtype=torch.float32, device=gaussian_model.device)
+    if gaussian_model.cfg['vis'].get('map_w2c_auto', False):
+        xyz = gaussian_model.get_property('_xyz').detach()
+        valid_xyz = torch.isfinite(xyz).all(dim=1)
+        if valid_xyz.any():
+            xyz_valid = xyz[valid_xyz]
+            xyz_min = xyz_valid.min(dim=0).values
+            xyz_max = xyz_valid.max(dim=0).values
+            xyz_center = (xyz_min + xyz_max) * 0.5
+            xyz_span = torch.clamp(xyz_max - xyz_min, min=1e-3)
+            margin = float(gaussian_model.cfg['vis'].get('map_w2c_auto_margin', 1.25))
+            min_depth = float(gaussian_model.cfg['vis'].get('map_w2c_auto_min_depth', 10.0))
+            view_depth_x = xyz_span[0] * float(bev_intrinsic_dict['fu']) / float(bev_intrinsic_dict['W'])
+            view_depth_y = xyz_span[1] * float(bev_intrinsic_dict['fv']) / float(bev_intrinsic_dict['H'])
+            view_depth = torch.clamp(torch.maximum(view_depth_x, view_depth_y) * margin, min=min_depth)
+
+            bev_w2c = torch.eye(4, dtype=torch.float32, device=gaussian_model.device)
+            bev_w2c[1, 1] = -1.0
+            bev_w2c[2, 2] = -1.0
+            bev_w2c[0, 3] = -xyz_center[0]
+            bev_w2c[1, 3] = xyz_center[1]
+            bev_w2c[2, 3] = xyz_max[2] + view_depth
+        else:
+            bev_w2c = torch.tensor(gaussian_model.cfg['vis']['bev_w2c'], dtype=torch.float32, device=gaussian_model.device)
+    else:
+        bev_w2c = torch.tensor(gaussian_model.cfg['vis']['bev_w2c'], dtype=torch.float32, device=gaussian_model.device)
     
     os.makedirs(f"{gaussian_model.cfg['output']['save_dir']}/map", exist_ok=True)
     
@@ -533,7 +574,7 @@ def vis_bev(visual_frontend, gaussian_model, return_image=False):
             if poses.shape[0] == 0:
                 return
 
-            poses = poses
+            poses = apply_mapper_pose_scale(visual_frontend, poses)
             poses_f_idx = poses_f_idx
             
             
