@@ -381,7 +381,7 @@ class DBAFusionFrontend:
             self.new_frame_added = True
             
         ## try initializing VI/GNSS
-        if self.t1 > self.vi_warmup and self.video.vi_init_t1 < 0:
+        if (not self.visual_only) and self.t1 > self.vi_warmup and self.video.vi_init_t1 < 0:
             self.init_VI()
             if not self.visual_only:
                 for i in range(len(self.all_stamp)): # skip to next image
